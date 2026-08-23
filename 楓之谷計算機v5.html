@@ -1,0 +1,945 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>楓之谷怪物打擊效率與多角色收益計算機</title>
+    <style>
+        * { box-sizing: border-box; }
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: #f0f2f5;
+            margin: 0;
+            padding: 20px;
+            color: #333;
+        }
+        .container {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 20px;
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+        .panel {
+            background: #ffffff;
+            padding: 20px;
+            border-radius: 12px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.08);
+        }
+        .left-panel { flex: 1; min-width: 320px; }
+        .right-panel { flex: 1.2; min-width: 340px; }
+        
+        h2, h3 { margin-top: 0; color: #2c3e50; border-bottom: 2px solid #eee; padding-bottom: 8px; }
+        
+        /* 角色切換區塊 */
+        .character-section {
+            background: #f8f9fa;
+            border: 1px solid #e2e8f0;
+            border-radius: 8px;
+            padding: 12px;
+            margin-bottom: 15px;
+        }
+        .char-select-group {
+            display: flex;
+            gap: 8px;
+            margin-bottom: 10px;
+        }
+        select {
+            flex: 1;
+            padding: 8px;
+            border: 1px solid #ccc;
+            border-radius: 6px;
+            font-size: 14px;
+            background: #fff;
+        }
+        .btn-sm {
+            padding: 6px 12px;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            font-weight: bold;
+            font-size: 13px;
+        }
+        .btn-add { background: #3498db; color: white; }
+        .btn-del { background: #e74c3c; color: white; }
+        
+        .cost-info {
+            font-size: 13px;
+            color: #555;
+            background: #eef6ff;
+            padding: 10px;
+            border-radius: 6px;
+            margin-bottom: 15px;
+            border-left: 4px solid #3498db;
+        }
+        .form-group { margin-bottom: 15px; }
+        .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+        
+        label { display: block; font-weight: bold; margin-bottom: 5px; font-size: 14px; }
+        input[type="number"], input[type="text"] {
+            width: 100%;
+            padding: 8px 12px;
+            border: 1px solid #ccc;
+            border-radius: 6px;
+            font-size: 14px;
+        }
+        
+        .meso-grid {
+            display: grid;
+            grid-template-columns: repeat(5, 1fr);
+            gap: 8px;
+        }
+        .meso-grid input { padding: 6px; text-align: center; }
+
+        /* 計算結果區塊 */
+        .result-card {
+            padding: 15px;
+            border-radius: 8px;
+            margin-top: 15px;
+            text-align: center;
+            font-weight: bold;
+        }
+        .profit { background-color: #d4edda; color: #155724; border: 1px solid #c3e6cb; }
+        .loss { background-color: #f8d7da; color: #721c24; border: 1px solid #f5c6cb; }
+        
+        .btn-group { display: flex; gap: 8px; margin-top: 10px; }
+        .btn {
+            flex: 1;
+            padding: 10px;
+            border: none;
+            border-radius: 6px;
+            background-color: #27ae60;
+            color: white;
+            font-size: 16px;
+            font-weight: bold;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+        .btn:hover { background-color: #219150; }
+        .btn-cancel { background-color: #7f8c8d; display: none; }
+        .btn-cancel:hover { background-color: #616e6f; }
+
+        /* 排行榜右側控制區塊 */
+        .right-header-actions {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+        .icon-btn {
+            background: #f1f5f9;
+            border: 1px solid #cbd5e1;
+            color: #475569;
+            padding: 6px 10px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 14px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: all 0.2s;
+        }
+        .icon-btn:hover { background: #e2e8f0; color: #1e293b; }
+        .icon-btn.active { background: #3498db; color: white; border-color: #2980b9; }
+
+        /* TAB 頁籤選單 */
+        .tab-group {
+            display: flex;
+            border-bottom: 2px solid #e2e8f0;
+            margin-bottom: 15px;
+        }
+        .tab-btn {
+            flex: 1;
+            padding: 10px 4px;
+            background: none;
+            border: none;
+            border-bottom: 3px solid transparent;
+            font-size: 14px;
+            font-weight: bold;
+            color: #64748b;
+            cursor: pointer;
+            transition: all 0.2s;
+            text-align: center;
+        }
+        .tab-btn:hover { color: #3498db; }
+        .tab-btn.active {
+            color: #3498db;
+            border-bottom-color: #3498db;
+        }
+
+        .manage-btn {
+            background: #64748b;
+            color: white;
+            border: none;
+            padding: 7px 12px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-weight: bold;
+            font-size: 13px;
+        }
+        .manage-btn:hover { background: #475569; }
+
+        .monster-list { list-style: none; padding: 0; margin: 0; }
+        
+        /* 怪物卡片 */
+        .monster-item {
+            background: #ffffff;
+            border: 1px solid #e2e8f0;
+            border-radius: 10px;
+            padding: 14px;
+            margin-bottom: 10px;
+            cursor: pointer;
+            transition: all 0.15s ease-in-out;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.02);
+            position: relative;
+        }
+        .monster-item:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(0,0,0,0.08);
+            border-color: #3498db;
+        }
+        
+        /* 前三名特別樣式 */
+        .monster-item.rank-1 {
+            background: linear-gradient(135deg, #fffcf0 0%, #fff3c4 100%);
+            border: 2px solid #f1c40f;
+        }
+        .monster-item.rank-2 {
+            background: linear-gradient(135deg, #f8fafc 0%, #e2e8f0 100%);
+            border: 2px solid #94a3b8;
+        }
+        .monster-item.rank-3 {
+            background: linear-gradient(135deg, #fffaf5 0%, #ffedd5 100%);
+            border: 2px solid #d97706;
+        }
+
+        .monster-header {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin-bottom: 8px;
+            flex-wrap: wrap;
+        }
+        .monster-title { font-weight: bold; font-size: 16px; color: #1e293b; }
+        
+        .status-badge {
+            font-size: 11px;
+            font-weight: bold;
+            padding: 2px 8px;
+            border-radius: 12px;
+            display: inline-block;
+        }
+        .badge-profit { background-color: #dcfce7; color: #15803d; border: 1px solid #86efac; }
+        .badge-loss { background-color: #fee2e2; color: #b91c1c; border: 1px solid #fca5a5; }
+        .badge-cp { background-color: #fef3c7; color: #b45309; border: 1px solid #fde68a; font-weight: 800; }
+
+        /* 詳細模式樣式 */
+        .primary-stat {
+            background: rgba(255, 255, 255, 0.6);
+            padding: 8px 12px;
+            border-radius: 6px;
+            margin-bottom: 8px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border: 1px solid rgba(0,0,0,0.05);
+        }
+        .primary-stat .label { font-size: 13px; color: #64748b; font-weight: 500; }
+        .primary-stat .value { font-size: 18px; font-weight: 800; }
+        
+        .secondary-stats {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 6px;
+            font-size: 12px;
+            color: #64748b;
+            border-top: 1px dashed rgba(0,0,0,0.1);
+            padding-top: 8px;
+        }
+        .secondary-stats div span { font-weight: bold; color: #334155; }
+
+        /* 緊湊模式 (Compact Mode) 樣式 */
+        .monster-item.compact {
+            padding: 10px 14px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 6px;
+        }
+        .compact-left {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .compact-right {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        .compact-val { font-size: 15px; font-weight: 800; }
+        .compact-sub { font-size: 12px; color: #64748b; }
+
+        /* 彈窗 (Modal) 樣式 */
+        .modal-backdrop {
+            position: fixed;
+            top: 0; left: 0; width: 100vw; height: 100vh;
+            background: rgba(0,0,0,0.5);
+            display: none;
+            justify-content: center;
+            align-items: center;
+            z-index: 1000;
+        }
+        .modal {
+            background: white;
+            padding: 20px;
+            border-radius: 12px;
+            width: 90%;
+            max-width: 500px;
+            max-height: 80vh;
+            display: flex;
+            flex-direction: column;
+            box-shadow: 0 10px 25px rgba(0,0,0,0.2);
+        }
+        .modal-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border-bottom: 1px solid #eee;
+            padding-bottom: 10px;
+            margin-bottom: 15px;
+        }
+        .modal-body { overflow-y: auto; flex: 1; }
+        .manage-item {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 10px;
+            border-bottom: 1px solid #f1f5f9;
+        }
+        .manage-item:last-child { border-bottom: none; }
+        .btn-modal-del {
+            background: #ef4444;
+            color: white;
+            border: none;
+            padding: 4px 8px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 12px;
+        }
+        .btn-modal-del:hover { background: #dc2626; }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <!-- 左側：輸入與計算區 -->
+    <div class="panel left-panel">
+        <h2>打怪收益計算機</h2>
+
+        <!-- 切換角色區塊 -->
+        <div class="character-section">
+            <label>選擇目前角色</label>
+            <div class="char-select-group">
+                <select id="charSelect" onchange="switchCharacter()"></select>
+                <button class="btn-sm btn-add" onclick="addCharacter()">+ 新增角色</button>
+                <button class="btn-sm btn-del" onclick="deleteCharacter()">刪除角色</button>
+            </div>
+        </div>
+        
+        <div class="cost-info">
+            • MP 成本：每擊耗 20 MP（192 元/100 MP ➔ 38.4 元/下）<br>
+            • HP 成本：1 HP 損失 = 1 楓幣
+        </div>
+
+        <div class="grid-2">
+            <div class="form-group">
+                <label for="hits">擊殺所需次數（下）</label>
+                <input type="number" id="hits" placeholder="例如：3" min="1" oninput="calculate()">
+            </div>
+            <div class="form-group">
+                <label for="exp">怪物總經驗值 (EXP)</label>
+                <input type="number" id="exp" placeholder="例如：120" min="0" oninput="calculate()">
+            </div>
+        </div>
+
+        <div class="grid-2" style="background: #fff5f5; padding: 10px; border-radius: 6px; border: 1px solid #ffe3e3; margin-bottom: 15px;">
+            <div class="form-group" style="margin:0;">
+                <label for="hpDamage">撞擊一次扣血 (HP)</label>
+                <input type="number" id="hpDamage" placeholder="無被撞填 0" min="0" oninput="calculate()">
+            </div>
+            <div class="form-group" style="margin:0;">
+                <label for="hitChance">平均幾隻被撞 1 次？</label>
+                <input type="number" id="hitChance" placeholder="例如：10 (代表1/10)" min="1" oninput="calculate()">
+            </div>
+        </div>
+
+        <div class="form-group">
+            <label for="itemValue">平灘每隻怪物「戰利品/道具」價值 (楓幣)</label>
+            <input type="number" id="itemValue" placeholder="例如：道具單價 × 掉落率" min="0" oninput="calculate()">
+        </div>
+
+        <div class="form-group">
+            <label>掉落楓幣（最多可填 10 次，自動取平均）</label>
+            <div class="meso-grid">
+                <input type="number" class="meso-input" placeholder="1" oninput="calculate()">
+                <input type="number" class="meso-input" placeholder="2" oninput="calculate()">
+                <input type="number" class="meso-input" placeholder="3" oninput="calculate()">
+                <input type="number" class="meso-input" placeholder="4" oninput="calculate()">
+                <input type="number" class="meso-input" placeholder="5" oninput="calculate()">
+                <input type="number" class="meso-input" placeholder="6" oninput="calculate()">
+                <input type="number" class="meso-input" placeholder="7" oninput="calculate()">
+                <input type="number" class="meso-input" placeholder="8" oninput="calculate()">
+                <input type="number" class="meso-input" placeholder="9" oninput="calculate()">
+                <input type="number" class="meso-input" placeholder="10" oninput="calculate()">
+            </div>
+        </div>
+
+        <div id="resultCard" class="result-card profit" style="display: none;">
+            <div id="statusTitle" style="font-size: 18px; margin-bottom: 5px;"></div>
+            <div id="profitPerMonster"></div>
+            <div id="efficiencyMetrics" style="font-size: 13px; margin-top: 8px; border-top: 1px dashed #aaa; padding-top: 5px;"></div>
+        </div>
+
+        <div style="margin-top: 20px; border-top: 2px solid #eee; padding-top: 15px;">
+            <div class="form-group">
+                <label for="monsterName">怪物名稱</label>
+                <input type="text" id="monsterName" placeholder="例如：綠水靈">
+            </div>
+            
+            <div class="btn-group">
+                <button class="btn" id="saveBtn" onclick="saveMonster()">儲存怪物數據</button>
+                <button class="btn btn-cancel" id="cancelBtn" onclick="cancelEdit()">取消編輯</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 右側：怪物資料庫與排行榜 -->
+    <div class="panel right-panel">
+        <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 2px solid #eee; padding-bottom: 8px; margin-bottom: 12px;">
+            <h3 style="border: none; padding: 0; margin: 0;"><span id="currentCharTitle">預設角色</span> - 排行榜</h3>
+            <div class="right-header-actions">
+                <!-- 緊湊模式 Icon 按鈕 -->
+                <button class="icon-btn" id="btnModeCompact" onclick="toggleViewMode()" title="切換緊湊/詳細模式">
+                    <span id="compactIcon">☰</span>
+                </button>
+                <!-- 編輯清單按鈕 -->
+                <button class="manage-btn" onclick="openManageModal()">⚙️ 編輯清單</button>
+            </div>
+        </div>
+
+        <!-- TAB 切換：楓幣排行 / 經驗排行 / CP值排行 -->
+        <div class="tab-group">
+            <button class="tab-btn active" id="tabMeso" onclick="setSort('mesoPerHit')">💰 楓幣排行</button>
+            <button class="tab-btn" id="tabExp" onclick="setSort('expPerHit')">⚡ 經驗排行</button>
+            <button class="tab-btn" id="tabCP" onclick="setSort('cpRatio')">⭐ CP值排行</button>
+        </div>
+
+        <ul class="monster-list" id="monsterList"></ul>
+    </div>
+</div>
+
+<!-- 編輯清單彈窗 (Modal) -->
+<div class="modal-backdrop" id="manageModal">
+    <div class="modal">
+        <div class="modal-header">
+            <h3 style="margin:0; border:none; padding:0;">⚙️ 管理怪物清單</h3>
+            <button onclick="closeManageModal()" style="border:none; background:none; font-size:18px; cursor:pointer;">✕</button>
+        </div>
+        <div class="modal-body" id="manageList"></div>
+        <div style="text-align: right; margin-top: 15px; border-top: 1px solid #eee; padding-top: 10px;">
+            <button class="btn-sm btn-add" onclick="closeManageModal()">完成</button>
+        </div>
+    </div>
+</div>
+
+<script>
+    let currentSort = 'mesoPerHit';
+    let currentCharacter = '預設角色';
+    let characterList = ['預設角色'];
+    let editingMonsterId = null;
+    let isCompactMode = false;
+
+    function initData() {
+        const storedChars = localStorage.getItem('maple_characters');
+        if (storedChars) {
+            characterList = JSON.parse(storedChars);
+        } else {
+            localStorage.setItem('maple_characters', JSON.stringify(characterList));
+        }
+
+        const storedCurrent = localStorage.getItem('maple_current_char');
+        if (storedCurrent && characterList.includes(storedCurrent)) {
+            currentCharacter = storedCurrent;
+        } else {
+            currentCharacter = characterList[0];
+        }
+
+        renderCharSelect();
+        renderList();
+    }
+
+    function renderCharSelect() {
+        const select = document.getElementById('charSelect');
+        select.innerHTML = '';
+        characterList.forEach(char => {
+            const opt = document.createElement('option');
+            opt.value = char;
+            opt.innerText = char;
+            if (char === currentCharacter) opt.selected = true;
+            select.appendChild(opt);
+        });
+        document.getElementById('currentCharTitle').innerText = currentCharacter;
+    }
+
+    function switchCharacter() {
+        cancelEdit();
+        const select = document.getElementById('charSelect');
+        currentCharacter = select.value;
+        localStorage.setItem('maple_current_char', currentCharacter);
+        document.getElementById('currentCharTitle').innerText = currentCharacter;
+        renderList();
+    }
+
+    function addCharacter() {
+        const name = prompt('請輸入新角色名稱：');
+        if (!name || name.trim() === '') return;
+        
+        const cleanName = name.trim();
+        if (characterList.includes(cleanName)) {
+            alert('角色名稱已存在！');
+            return;
+        }
+
+        characterList.push(cleanName);
+        currentCharacter = cleanName;
+        
+        localStorage.setItem('maple_characters', JSON.stringify(characterList));
+        localStorage.setItem('maple_current_char', currentCharacter);
+
+        cancelEdit();
+        renderCharSelect();
+        renderList();
+    }
+
+    function deleteCharacter() {
+        if (characterList.length <= 1) {
+            alert('至少需要保留一個角色！');
+            return;
+        }
+
+        if (confirm(`確定要刪除角色「${currentCharacter}」及其所有怪物紀錄嗎？`)) {
+            localStorage.removeItem(`maple_monsters_${currentCharacter}`);
+
+            characterList = characterList.filter(c => c !== currentCharacter);
+            currentCharacter = characterList[0];
+
+            localStorage.setItem('maple_characters', JSON.stringify(characterList));
+            localStorage.setItem('maple_current_char', currentCharacter);
+
+            cancelEdit();
+            renderCharSelect();
+            renderList();
+        }
+    }
+
+    function getCalculations() {
+        const hits = parseFloat(document.getElementById('hits').value);
+        const exp = parseFloat(document.getElementById('exp').value) || 0;
+        const hpDamage = parseFloat(document.getElementById('hpDamage').value) || 0;
+        const hitChance = parseFloat(document.getElementById('hitChance').value) || 0;
+        const itemValue = parseFloat(document.getElementById('itemValue').value) || 0;
+        
+        const mesoInputs = document.querySelectorAll('.meso-input');
+        let mesoSum = 0;
+        let mesoCount = 0;
+        let mesoRawArray = [];
+        
+        mesoInputs.forEach(input => {
+            const val = parseFloat(input.value);
+            if (!isNaN(val) && val >= 0) {
+                mesoSum += val;
+                mesoCount++;
+                mesoRawArray.push(val);
+            } else {
+                mesoRawArray.push("");
+            }
+        });
+
+        if (isNaN(hits) || hits <= 0) return null;
+
+        const avgMeso = mesoCount > 0 ? (mesoSum / mesoCount) : 0;
+        const mpCostPerHit = 20 * (192 / 100); 
+        const totalMpCost = hits * mpCostPerHit;
+        const avgHpCostPerMonster = hitChance > 0 ? (hpDamage / hitChance) : 0;
+
+        const totalCost = totalMpCost + avgHpCostPerMonster;
+        const totalRevenue = avgMeso + itemValue;
+        const netProfitPerMonster = totalRevenue - totalCost;
+        
+        const mesoPerHit = netProfitPerMonster / hits;
+        const expPerHit = exp / hits;
+        // CP值計算：每擊楓幣收益 / 每擊經驗值 (幣/EXP)
+        const cpRatio = expPerHit > 0 ? (mesoPerHit / expPerHit) : 0;
+
+        return {
+            hits, exp, hpDamage, hitChance, itemValue, avgMeso, mesoRawArray,
+            totalMpCost, avgHpCostPerMonster, netProfitPerMonster, mesoPerHit, expPerHit, cpRatio
+        };
+    }
+
+    function calculate() {
+        const calc = getCalculations();
+        const resultCard = document.getElementById('resultCard');
+
+        if (!calc) {
+            resultCard.style.display = 'none';
+            return;
+        }
+
+        resultCard.style.display = 'block';
+
+        if (calc.netProfitPerMonster >= 0) {
+            resultCard.className = 'result-card profit';
+            document.getElementById('statusTitle').innerText = '淨賺（越打越賺）';
+            document.getElementById('profitPerMonster').innerText = `每隻收益：+${calc.netProfitPerMonster.toFixed(1)} 楓幣`;
+        } else {
+            resultCard.className = 'result-card loss';
+            document.getElementById('statusTitle').innerText = '賠錢（越打越虧）';
+            document.getElementById('profitPerMonster').innerText = `每隻收益：${calc.netProfitPerMonster.toFixed(1)} 楓幣`;
+        }
+
+        const cpSign = calc.cpRatio >= 0 ? '+' : '';
+        document.getElementById('efficiencyMetrics').innerHTML = `
+            ${calc.mesoPerHit.toFixed(2)} 幣/下 | 
+            ${calc.expPerHit.toFixed(2)} EXP/下 <br>
+            <span style="color:#b45309; font-weight:bold;">CP值 (幣/EXP): ${cpSign}${calc.cpRatio.toFixed(4)}</span>
+        `;
+    }
+
+    function saveMonster() {
+        const name = document.getElementById('monsterName').value.trim();
+        const calc = getCalculations();
+
+        if (!name) {
+            alert('請輸入怪物名稱！');
+            return;
+        }
+        if (!calc) {
+            alert('請輸入有效的擊殺下數！');
+            return;
+        }
+
+        const monsters = getStoredMonsters();
+        const existingMonster = monsters.find(m => m.id === editingMonsterId);
+
+        const monsterData = {
+            id: editingMonsterId || Date.now(),
+            name: name,
+            hits: calc.hits,
+            exp: calc.exp,
+            hpDamage: calc.hpDamage,
+            hitChance: calc.hitChance,
+            itemValue: calc.itemValue,
+            avgMeso: calc.avgMeso,
+            mesoRawArray: calc.mesoRawArray,
+            netProfit: calc.netProfitPerMonster,
+            mesoPerHit: calc.mesoPerHit,
+            expPerHit: calc.expPerHit,
+            cpRatio: calc.cpRatio,
+            hidden: existingMonster ? (existingMonster.hidden || false) : false
+        };
+
+        if (editingMonsterId) {
+            const index = monsters.findIndex(m => m.id === editingMonsterId);
+            if (index !== -1) monsters[index] = monsterData;
+        } else {
+            monsters.push(monsterData);
+        }
+
+        localStorage.setItem(`maple_monsters_${currentCharacter}`, JSON.stringify(monsters));
+
+        cancelEdit();
+        renderList();
+    }
+
+    function editMonster(id) {
+        const monsters = getStoredMonsters();
+        const target = monsters.find(m => m.id === id);
+        if (!target) return;
+
+        editingMonsterId = target.id;
+
+        document.getElementById('monsterName').value = target.name;
+        document.getElementById('hits').value = target.hits;
+        document.getElementById('exp').value = target.exp;
+        document.getElementById('hpDamage').value = target.hpDamage || '';
+        document.getElementById('hitChance').value = target.hitChance || '';
+        document.getElementById('itemValue').value = target.itemValue || '';
+
+        const mesoInputs = document.querySelectorAll('.meso-input');
+        mesoInputs.forEach((input, index) => {
+            if (target.mesoRawArray && target.mesoRawArray[index] !== undefined) {
+                input.value = target.mesoRawArray[index];
+            } else {
+                input.value = '';
+            }
+        });
+
+        document.getElementById('saveBtn').innerText = '更新怪物數據';
+        document.getElementById('saveBtn').style.backgroundColor = '#e67e22';
+        document.getElementById('cancelBtn').style.display = 'block';
+
+        calculate();
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+    }
+
+    function cancelEdit() {
+        editingMonsterId = null;
+        document.getElementById('monsterName').value = '';
+        document.getElementById('hits').value = '';
+        document.getElementById('exp').value = '';
+        document.getElementById('hpDamage').value = '';
+        document.getElementById('hitChance').value = '';
+        document.getElementById('itemValue').value = '';
+
+        const mesoInputs = document.querySelectorAll('.meso-input');
+        mesoInputs.forEach(input => input.value = '');
+
+        document.getElementById('saveBtn').innerText = '儲存怪物數據';
+        document.getElementById('saveBtn').style.backgroundColor = '#27ae60';
+        document.getElementById('cancelBtn').style.display = 'none';
+
+        calculate();
+    }
+
+    function getStoredMonsters() {
+        const data = localStorage.getItem(`maple_monsters_${currentCharacter}`);
+        let monsters = data ? JSON.parse(data) : [];
+        // 確保舊資料也有 cpRatio 屬性
+        return monsters.map(m => {
+            if (m.cpRatio === undefined) {
+                m.cpRatio = m.expPerHit > 0 ? (m.mesoPerHit / m.expPerHit) : 0;
+            }
+            return m;
+        });
+    }
+
+    function setSort(sortType) {
+        currentSort = sortType;
+        document.getElementById('tabMeso').classList.toggle('active', sortType === 'mesoPerHit');
+        document.getElementById('tabExp').classList.toggle('active', sortType === 'expPerHit');
+        document.getElementById('tabCP').classList.toggle('active', sortType === 'cpRatio');
+        renderList();
+    }
+
+    function toggleViewMode() {
+        isCompactMode = !isCompactMode;
+        const btn = document.getElementById('btnModeCompact');
+        const icon = document.getElementById('compactIcon');
+        
+        btn.classList.toggle('active', isCompactMode);
+        icon.innerText = isCompactMode ? '☰☰' : '☰';
+        
+        renderList();
+    }
+
+    // 計算 CP 值最高的前 30% 怪物集合
+    function calculateHighCPSet(monsters) {
+        if (monsters.length === 0) return new Set();
+
+        const cpSorted = [...monsters].sort((a, b) => b.cpRatio - a.cpRatio);
+        const thresholdCount = Math.max(1, Math.ceil(monsters.length * 0.3));
+
+        const cpSet = new Set(cpSorted.slice(0, thresholdCount).map(m => m.id));
+        return cpSet;
+    }
+
+    // 渲染右側怪物清單
+    function renderList() {
+        const listEl = document.getElementById('monsterList');
+        let monsters = getStoredMonsters();
+
+        // 排序
+        monsters.sort((a, b) => b[currentSort] - a[currentSort]);
+
+        // 過濾掉隱藏怪物
+        const visibleMonsters = monsters.filter(m => !m.hidden);
+
+        listEl.innerHTML = '';
+
+        if (visibleMonsters.length === 0) {
+            listEl.innerHTML = `<li style="text-align:center; color:#999; padding:20px;">尚無顯示的怪物資料</li>`;
+            return;
+        }
+
+        // 計算高 CP 值集合
+        const cpSet = calculateHighCPSet(visibleMonsters);
+
+        visibleMonsters.forEach((m, index) => {
+            const li = document.createElement('li');
+            li.onclick = () => editMonster(m.id);
+
+            let rankClass = '';
+            let emojiPrefix = `#${index + 1}`;
+            if (index === 0) { rankClass = 'rank-1'; emojiPrefix = '🥇 1'; }
+            else if (index === 1) { rankClass = 'rank-2'; emojiPrefix = '🥈 2'; }
+            else if (index === 2) { rankClass = 'rank-3'; emojiPrefix = '🥉 3'; }
+
+            const isProfit = m.netProfit >= 0;
+            const badgeHtml = isProfit 
+                ? `<span class="status-badge badge-profit">▲ 賺</span>` 
+                : `<span class="status-badge badge-loss">▼ 虧</span>`;
+            
+            const cpHtml = cpSet.has(m.id) ? `<span class="status-badge badge-cp">⭐ 高 CP 值</span>` : '';
+
+            const profitSign = isProfit ? '+' : '';
+            const profitColor = isProfit ? '#16a34a' : '#dc2626';
+            const cpSign = m.cpRatio >= 0 ? '+' : '';
+
+            if (isCompactMode) {
+                // 緊湊模式
+                let valText = '';
+                let subText = '';
+
+                if (currentSort === 'mesoPerHit') {
+                    valText = `<span style="color:${profitColor}">${profitSign}${m.mesoPerHit.toFixed(2)} 幣/下</span>`;
+                    subText = `${m.expPerHit.toFixed(1)} EXP`;
+                } else if (currentSort === 'expPerHit') {
+                    valText = `<span style="color:#d97706">${m.expPerHit.toFixed(1)} EXP/下</span>`;
+                    subText = `${profitSign}${m.mesoPerHit.toFixed(2)} 幣`;
+                } else {
+                    valText = `<span style="color:#b45309">${cpSign}${m.cpRatio.toFixed(3)} 幣/EXP</span>`;
+                    subText = `${m.expPerHit.toFixed(0)} EXP`;
+                }
+
+                li.className = `monster-item compact ${rankClass}`;
+                li.innerHTML = `
+                    <div class="compact-left">
+                        <span style="font-weight:bold; font-size:12px; color:#64748b; min-width:32px;">${emojiPrefix}</span>
+                        <span class="monster-title" style="font-size:14px;">${m.name}</span>
+                        ${badgeHtml}
+                        ${cpHtml}
+                    </div>
+                    <div class="compact-right">
+                        <span class="compact-val">${valText}</span>
+                        <span class="compact-sub">(${subText})</span>
+                    </div>
+                `;
+            } else {
+                // 詳細模式
+                li.className = `monster-item ${rankClass}`;
+
+                let primaryHtml = '';
+                let secondaryHtml = '';
+
+                if (currentSort === 'mesoPerHit') {
+                    primaryHtml = `
+                        <div class="primary-stat">
+                            <span class="label">每擊淨收益</span>
+                            <span class="value" style="color: ${profitColor};">${profitSign}${m.mesoPerHit.toFixed(2)} <span style="font-size: 13px;">幣/下</span></span>
+                        </div>
+                    `;
+                } else if (currentSort === 'expPerHit') {
+                    primaryHtml = `
+                        <div class="primary-stat">
+                            <span class="label">每擊經驗效率</span>
+                            <span class="value" style="color: #d97706;">${m.expPerHit.toFixed(2)} <span style="font-size: 13px;">EXP/下</span></span>
+                        </div>
+                    `;
+                } else {
+                    primaryHtml = `
+                        <div class="primary-stat">
+                            <span class="label">CP值 (每單位經驗獲益)</span>
+                            <span class="value" style="color: #b45309;">${cpSign}${m.cpRatio.toFixed(4)} <span style="font-size: 13px;">幣/EXP</span></span>
+                        </div>
+                    `;
+                }
+
+                secondaryHtml = `
+                    <div class="secondary-stats">
+                        <div>每擊楓幣: <span style="color:${profitColor}">${profitSign}${m.mesoPerHit.toFixed(2)}</span></div>
+                        <div>每擊經驗: <span>${m.expPerHit.toFixed(1)}</span></div>
+                        <div>CP值: <span style="color:#b45309">${cpSign}${m.cpRatio.toFixed(3)}</span></div>
+                    </div>
+                `;
+
+                li.innerHTML = `
+                    <div class="monster-header">
+                        <span style="font-weight:bold; font-size:13px; color:#475569;">${emojiPrefix.includes('#') ? emojiPrefix : emojiPrefix + ' 名'}</span>
+                        <span class="monster-title">${m.name}</span>
+                        ${badgeHtml}
+                        ${cpHtml}
+                    </div>
+                    ${primaryHtml}
+                    ${secondaryHtml}
+                `;
+            }
+
+            listEl.appendChild(li);
+        });
+    }
+
+    // --- 管理彈窗邏輯 ---
+    function openManageModal() {
+        renderManageList();
+        document.getElementById('manageModal').style.display = 'flex';
+    }
+
+    function closeManageModal() {
+        document.getElementById('manageModal').style.display = 'none';
+        renderList();
+    }
+
+    function renderManageList() {
+        const container = document.getElementById('manageList');
+        const monsters = getStoredMonsters();
+
+        if (monsters.length === 0) {
+            container.innerHTML = `<div style="text-align:center; color:#999; padding:20px;">尚無怪物資料</div>`;
+            return;
+        }
+
+        container.innerHTML = '';
+        monsters.forEach(m => {
+            const div = document.createElement('div');
+            div.className = 'manage-item';
+            div.innerHTML = `
+                <div>
+                    <strong>${m.name}</strong>
+                </div>
+                <div style="display:flex; align-items:center; gap:12px;">
+                    <label style="font-size:12px; cursor:pointer; margin:0;">
+                        <input type="checkbox" ${m.hidden ? 'checked' : ''} onchange="toggleHideMonster(${m.id})"> 隱藏
+                    </label>
+                    <button class="btn-modal-del" onclick="confirmDeleteMonster(${m.id}, '${m.name}')">刪除</button>
+                </div>
+            `;
+            container.appendChild(div);
+        });
+    }
+
+    function toggleHideMonster(id) {
+        const monsters = getStoredMonsters();
+        const target = monsters.find(m => m.id === id);
+        if (target) {
+            target.hidden = !target.hidden;
+            localStorage.setItem(`maple_monsters_${currentCharacter}`, JSON.stringify(monsters));
+        }
+    }
+
+    function confirmDeleteMonster(id, name) {
+        if (confirm(`確定要永久刪除怪物「${name}」的紀錄嗎？`)) {
+            if (editingMonsterId === id) cancelEdit();
+
+            let monsters = getStoredMonsters();
+            monsters = monsters.filter(m => m.id !== id);
+            localStorage.setItem(`maple_monsters_${currentCharacter}`, JSON.stringify(monsters));
+            
+            renderManageList();
+        }
+    }
+
+    window.onload = initData;
+</script>
+
+</body>
+</html>
