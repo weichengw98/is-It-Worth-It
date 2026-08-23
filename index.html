@@ -41,11 +41,13 @@
         }
         .char-select-group {
             display: flex;
+            flex-wrap: wrap;
             gap: 8px;
             margin-bottom: 10px;
         }
         select {
             flex: 1;
+            min-width: 120px;
             padding: 8px;
             border: 1px solid #ccc;
             border-radius: 6px;
@@ -59,9 +61,14 @@
             cursor: pointer;
             font-weight: bold;
             font-size: 13px;
+            transition: background-color 0.2s, color 0.2s;
         }
         .btn-add { background: #3498db; color: white; }
         .btn-del { background: #e74c3c; color: white; }
+        .btn-import { background: #ffffff; color: #475569; border: 1px solid #cbd5e1; }
+        .btn-import:hover { background: #f1f5f9; }
+        .btn-export { background: #16a34a; color: white; }
+        .btn-export:hover { background: #15803d; }
         
         .cost-info {
             font-size: 13px;
@@ -69,8 +76,16 @@
             background: #eef6ff;
             padding: 10px;
             border-radius: 6px;
-            margin-bottom: 15px;
+            margin-bottom: 22px;
             border-left: 4px solid #3498db;
+        }
+        .cost-config-panel {
+            background: #fff;
+            border: 1px dashed #3498db;
+            border-radius: 6px;
+            padding: 10px;
+            margin-top: 8px;
+            display: none;
         }
         .form-group { margin-bottom: 15px; }
         .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
@@ -90,6 +105,12 @@
             gap: 8px;
         }
         .meso-grid input { padding: 6px; text-align: center; }
+        /* 掉落楓幣有填寫時的寶藍色框線樣式 */
+        .meso-grid input.has-value {
+            border: 2px solid #1d4ed8;
+            background-color: #f0f7ff;
+            font-weight: bold;
+        }
 
         /* 計算結果區塊 */
         .result-card {
@@ -228,8 +249,8 @@
             border-radius: 12px;
             display: inline-block;
         }
-        .badge-profit { background-color: #dcfce7; color: #15803d; border: 1px solid #86efac; }
-        .badge-loss { background-color: #fee2e2; color: #b91c1c; border: 1px solid #fca5a5; }
+        .badge-profit { background-color: #dcfce7; color: #16a34a; border: 1px solid #86efac; }
+        .badge-loss { background-color: #fee2e2; color: #dc2626; border: 1px solid #fca5a5; }
         .badge-cp { background-color: #fef3c7; color: #b45309; border: 1px solid #fde68a; font-weight: 800; }
 
         /* 詳細模式樣式 */
@@ -243,8 +264,7 @@
             align-items: center;
             border: 1px solid rgba(0,0,0,0.05);
         }
-        .primary-stat .label { font-size: 13px; color: #64748b; font-weight: 500; }
-        .primary-stat .value { font-size: 18px; font-weight: 800; }
+        .primary-stat .label { font-size: 13px; color: #64748b; font-weight: 600; }
         
         .secondary-stats {
             display: grid;
@@ -255,7 +275,7 @@
             border-top: 1px dashed rgba(0,0,0,0.1);
             padding-top: 8px;
         }
-        .secondary-stats div span { font-weight: bold; color: #334155; }
+        .secondary-stats div span { font-weight: bold; }
 
         /* 緊湊模式 (Compact Mode) 樣式 */
         .monster-item.compact {
@@ -275,7 +295,7 @@
             align-items: center;
             gap: 10px;
         }
-        .compact-val { font-size: 15px; font-weight: 800; }
+        .compact-val { font-size: 14px; font-weight: 800; }
         .compact-sub { font-size: 12px; color: #64748b; }
 
         /* 彈窗 (Modal) 樣式 */
@@ -333,31 +353,99 @@
 <div class="container">
     <!-- 左側：輸入與計算區 -->
     <div class="panel left-panel">
-        <h2>打怪收益計算機</h2>
+        <h2>楓之谷打怪收益計算機</h2>
 
-        <!-- 切換角色區塊 -->
+        <!-- 切換角色與匯入匯出區塊 (按鈕依序：新增角色 -> 刪除 -> 匯入 -> 匯出) -->
         <div class="character-section">
             <label>選擇目前角色</label>
             <div class="char-select-group">
                 <select id="charSelect" onchange="switchCharacter()"></select>
                 <button class="btn-sm btn-add" onclick="addCharacter()">+ 新增角色</button>
-                <button class="btn-sm btn-del" onclick="deleteCharacter()">刪除角色</button>
+                <button class="btn-sm btn-del" onclick="deleteCharacter()">刪除</button>
+                <button class="btn-sm btn-import" onclick="triggerImport()">匯入</button>
+                <button class="btn-sm btn-export" onclick="exportCharacterData()">匯出</button>
+                <input type="file" id="importFileInput" accept=".json" style="display:none;" onchange="handleFileImport(event)">
             </div>
         </div>
         
         <div class="cost-info">
-            • MP 成本：每擊耗 20 MP（192 元/100 MP ➔ 38.4 元/下）<br>
-            • HP 成本：1 HP 損失 = 1 楓幣
+            <div style="display: flex; justify-content: space-between; align-items: center;">
+                <span id="costTitleText">• 預設角色 計算基礎</span>
+                <span id="toggleCostBtn" style="cursor: pointer; color: #3498db; font-weight: bold;" onclick="toggleCostConfig()">✏️ 編輯</span>
+            </div>
+            <div id="costTextDisplay" style="margin-top: 5px;"></div>
+            <div id="costConfigPanel" class="cost-config-panel">
+                <div class="grid-2" style="margin-bottom: 8px;">
+                    <div>
+                        <label style="font-size: 12px;">HP水補量 (HP)</label>
+                        <input type="number" id="hpRestore" value="300" min="1" oninput="updateCostConfig()">
+                    </div>
+                    <div>
+                        <label style="font-size: 12px;">HP水價格 (楓幣)</label>
+                        <input type="number" id="hpPrice" value="300" min="0" oninput="updateCostConfig()">
+                    </div>
+                </div>
+                <div class="grid-2" style="margin-bottom: 8px;">
+                    <div>
+                        <label style="font-size: 12px;">MP水補量 (MP)</label>
+                        <input type="number" id="mpRestore" value="100" min="1" oninput="updateCostConfig()">
+                    </div>
+                    <div>
+                        <label style="font-size: 12px;">MP水價格 (楓幣)</label>
+                        <input type="number" id="mpPrice" value="192" min="0" oninput="updateCostConfig()">
+                    </div>
+                </div>
+                <!-- 技能基礎維護區塊 -->
+                <div class="grid-2" style="margin-bottom: 8px; border-top: 1px dashed #ccc; padding-top: 8px;">
+                    <div>
+                        <label style="font-size: 12px;">技能 1 名稱</label>
+                        <input type="text" id="skill1Name" value="技能1" oninput="updateCostConfig()">
+                    </div>
+                    <div>
+                        <label style="font-size: 12px;">技能 1 耗 MP/次</label>
+                        <input type="number" id="mpCost1" value="20" min="0" oninput="updateCostConfig()">
+                    </div>
+                </div>
+                <div class="grid-2">
+                    <div>
+                        <label style="font-size: 12px;">技能 2 名稱</label>
+                        <input type="text" id="skill2Name" value="技能2" oninput="updateCostConfig()">
+                    </div>
+                    <div>
+                        <label style="font-size: 12px;">技能 2 耗 MP/次</label>
+                        <input type="number" id="mpCost2" value="0" min="0" oninput="updateCostConfig()">
+                    </div>
+                </div>
+            </div>
         </div>
 
+        <!-- 怪物名稱區塊 (移動至技能所需次數之前) -->
+        <div class="form-group">
+            <label for="monsterName">怪物名稱</label>
+            <input type="text" id="monsterName" placeholder="例如：綠水靈">
+        </div>
+
+        <!-- 技能擊殺次數區塊 -->
         <div class="grid-2">
             <div class="form-group">
-                <label for="hits">擊殺所需次數（下）</label>
-                <input type="number" id="hits" placeholder="例如：3" min="1" oninput="calculate()">
+                <label for="hits1" id="labelSkill1">技能1所需次數（下）</label>
+                <input type="number" id="hits1" placeholder="例如：1" min="0" oninput="calculate()">
             </div>
+            <div class="form-group">
+                <label for="hits2" id="labelSkill2">技能2所需次數（下）</label>
+                <input type="number" id="hits2" placeholder="例如：1" min="0" oninput="calculate()">
+            </div>
+        </div>
+
+        <!-- 怪物總經驗值 與 道具價值 併排區塊 -->
+        <div class="grid-2">
             <div class="form-group">
                 <label for="exp">怪物總經驗值 (EXP)</label>
                 <input type="number" id="exp" placeholder="例如：120" min="0" oninput="calculate()">
+            </div>
+            <div class="form-group">
+                <label for="itemValue">怪物掉落物價值</label>
+                <input type="number" id="itemValue" placeholder="例如：50" min="0" oninput="calculate()">
             </div>
         </div>
 
@@ -373,12 +461,7 @@
         </div>
 
         <div class="form-group">
-            <label for="itemValue">平灘每隻怪物「戰利品/道具」價值 (楓幣)</label>
-            <input type="number" id="itemValue" placeholder="例如：道具單價 × 掉落率" min="0" oninput="calculate()">
-        </div>
-
-        <div class="form-group">
-            <label>掉落楓幣（最多可填 10 次，自動取平均）</label>
+            <label id="mesoLabel">掉落楓幣（最多可填 10 次，目前平均 0 元）</label>
             <div class="meso-grid">
                 <input type="number" class="meso-input" placeholder="1" oninput="calculate()">
                 <input type="number" class="meso-input" placeholder="2" oninput="calculate()">
@@ -400,11 +483,6 @@
         </div>
 
         <div style="margin-top: 20px; border-top: 2px solid #eee; padding-top: 15px;">
-            <div class="form-group">
-                <label for="monsterName">怪物名稱</label>
-                <input type="text" id="monsterName" placeholder="例如：綠水靈">
-            </div>
-            
             <div class="btn-group">
                 <button class="btn" id="saveBtn" onclick="saveMonster()">儲存怪物數據</button>
                 <button class="btn btn-cancel" id="cancelBtn" onclick="cancelEdit()">取消編輯</button>
@@ -452,50 +530,553 @@
 </div>
 
 <script>
-    let currentSort = 'mesoPerHit';
-    let currentCharacter = '預設角色';
-    let characterList = ['預設角色'];
-    let editingMonsterId = null;
-    let isCompactMode = false;
+    /* ==========================================================================
+       1. STORAGE SERVICE (資料持久化層) - 專門讀寫 LocalStorage
+       ========================================================================== */
+    const StorageService = {
+        KEYS: {
+            CHARACTERS: 'maple_characters',
+            CURRENT_CHAR: 'maple_current_char',
+            MONSTERS_PREFIX: 'maple_monsters_',
+            COST_PREFIX: 'maple_cost_'
+        },
+
+        getCharacters() {
+            const data = localStorage.getItem(this.KEYS.CHARACTERS);
+            return data ? JSON.parse(data) : ['預設角色'];
+        },
+
+        saveCharacters(list) {
+            localStorage.setItem(this.KEYS.CHARACTERS, JSON.stringify(list));
+        },
+
+        getCurrentChar(fallbackList) {
+            const current = localStorage.getItem(this.KEYS.CURRENT_CHAR);
+            return (current && fallbackList.includes(current)) ? current : fallbackList[0];
+        },
+
+        saveCurrentChar(charName) {
+            localStorage.setItem(this.KEYS.CURRENT_CHAR, charName);
+        },
+
+        getCostConfig(charName) {
+            const data = localStorage.getItem(`${this.KEYS.COST_PREFIX}${charName}`);
+            if (data) {
+                return JSON.parse(data);
+            }
+            return {
+                hpRestore: 300,
+                hpPrice: 300,
+                mpRestore: 100,
+                mpPrice: 192,
+                skill1Name: '技能1',
+                mpCost1: 20,
+                skill2Name: '技能2',
+                mpCost2: 0
+            };
+        },
+
+        saveCostConfig(charName, config) {
+            localStorage.setItem(`${this.KEYS.COST_PREFIX}${charName}`, JSON.stringify(config));
+        },
+
+        getMonsters(charName) {
+            const data = localStorage.getItem(`${this.KEYS.MONSTERS_PREFIX}${charName}`);
+            let monsters = data ? JSON.parse(data) : [];
+            return monsters.map(m => {
+                if (m.cpRatio === undefined) {
+                    m.cpRatio = m.expPerHit > 0 ? (m.mesoPerHit / m.expPerHit) : 0;
+                }
+                return m;
+            });
+        },
+
+        saveMonsters(charName, monsters) {
+            localStorage.setItem(`${this.KEYS.MONSTERS_PREFIX}${charName}`, JSON.stringify(monsters));
+        },
+
+        removeMonsterData(charName) {
+            localStorage.removeItem(`${this.KEYS.MONSTERS_PREFIX}${charName}`);
+            localStorage.removeItem(`${this.KEYS.COST_PREFIX}${charName}`);
+        }
+    };
+
+    /* ==========================================================================
+       2. CALC ENGINE (計算核心層) - 純函數公式，不讀寫任何 DOM
+       ========================================================================== */
+    const CalcEngine = {
+        compute(params) {
+            const {
+                hits1 = 0, hits2 = 0,
+                mpCost1 = 0, mpCost2 = 0,
+                exp = 0, hpDamage = 0, hitChance = 0, itemValue = 0,
+                mesoRawArray = [],
+                hpRestore = 1, hpPrice = 0,
+                mpRestore = 1, mpPrice = 0,
+                skill1Name = '技能1', skill2Name = '技能2'
+            } = params;
+
+            const totalHits = hits1 + hits2;
+            if (totalHits <= 0) return null;
+
+            // 計算平均楓幣
+            let mesoSum = 0;
+            let mesoCount = 0;
+            mesoRawArray.forEach(val => {
+                const num = parseFloat(val);
+                if (!isNaN(num) && num >= 0) {
+                    mesoSum += num;
+                    mesoCount++;
+                }
+            });
+            const avgMeso = mesoCount > 0 ? (mesoSum / mesoCount) : 0;
+
+            // 計算補給成本
+            const mpCostPerUnit = mpPrice / (mpRestore || 1);
+            const hpCostPerUnit = hpPrice / (hpRestore || 1);
+
+            const totalMpCost = (hits1 * mpCost1 + hits2 * mpCost2) * mpCostPerUnit;
+            const avgHpLossPerMonster = hitChance > 0 ? (hpDamage / hitChance) : 0;
+            const avgHpCostPerMonster = avgHpLossPerMonster * hpCostPerUnit;
+
+            const totalCost = totalMpCost + avgHpCostPerMonster;
+            const totalRevenue = avgMeso + itemValue;
+            const netProfitPerMonster = totalRevenue - totalCost;
+
+            const mesoPerHit = netProfitPerMonster / totalHits;
+            const expPerHit = exp / totalHits;
+            const cpRatio = expPerHit > 0 ? (mesoPerHit / expPerHit) : 0;
+
+            return {
+                skill1Name, hits1, mpCost1,
+                skill2Name, hits2, mpCost2,
+                totalHits, exp, hpDamage, hitChance, itemValue,
+                avgMeso, mesoRawArray,
+                totalMpCost, avgHpCostPerMonster,
+                netProfitPerMonster, mesoPerHit, expPerHit, cpRatio
+            };
+        }
+    };
+
+    /* ==========================================================================
+       3. FORM CONTROLLER (表單讀寫層) - 專門讀取或填寫表單欄位
+       ========================================================================== */
+    const FormController = {
+        getFormData() {
+            const mesoInputs = document.querySelectorAll('.meso-input');
+            const mesoRawArray = [];
+            mesoInputs.forEach(input => {
+                const val = parseFloat(input.value);
+                mesoRawArray.push((!isNaN(val) && val >= 0) ? val : "");
+            });
+
+            return {
+                skill1Name: document.getElementById('skill1Name').value || '技能1',
+                hits1: parseFloat(document.getElementById('hits1').value) || 0,
+                mpCost1: parseFloat(document.getElementById('mpCost1').value) || 0,
+
+                skill2Name: document.getElementById('skill2Name').value || '技能2',
+                hits2: parseFloat(document.getElementById('hits2').value) || 0,
+                mpCost2: parseFloat(document.getElementById('mpCost2').value) || 0,
+
+                exp: parseFloat(document.getElementById('exp').value) || 0,
+                hpDamage: parseFloat(document.getElementById('hpDamage').value) || 0,
+                hitChance: parseFloat(document.getElementById('hitChance').value) || 0,
+                itemValue: parseFloat(document.getElementById('itemValue').value) || 0,
+
+                hpRestore: parseFloat(document.getElementById('hpRestore').value) || 1,
+                hpPrice: parseFloat(document.getElementById('hpPrice').value) || 0,
+                mpRestore: parseFloat(document.getElementById('mpRestore').value) || 1,
+                mpPrice: parseFloat(document.getElementById('mpPrice').value) || 0,
+
+                mesoRawArray
+            };
+        },
+
+        populateCostConfig(config) {
+            document.getElementById('hpRestore').value = config.hpRestore ?? 300;
+            document.getElementById('hpPrice').value = config.hpPrice ?? 300;
+            document.getElementById('mpRestore').value = config.mpRestore ?? 100;
+            document.getElementById('mpPrice').value = config.mpPrice ?? 192;
+            document.getElementById('skill1Name').value = config.skill1Name || '技能1';
+            document.getElementById('mpCost1').value = config.mpCost1 ?? 20;
+            document.getElementById('skill2Name').value = config.skill2Name || '技能2';
+            document.getElementById('mpCost2').value = config.mpCost2 ?? 0;
+        },
+
+        populateForm(monster) {
+            document.getElementById('monsterName').value = monster.name;
+            document.getElementById('hits1').value = monster.hits1 !== undefined ? monster.hits1 : monster.hits;
+            document.getElementById('hits2').value = monster.hits2 || '';
+            document.getElementById('exp').value = monster.exp;
+            document.getElementById('hpDamage').value = monster.hpDamage || '';
+            document.getElementById('hitChance').value = monster.hitChance || '';
+            document.getElementById('itemValue').value = monster.itemValue || '';
+
+            const mesoInputs = document.querySelectorAll('.meso-input');
+            mesoInputs.forEach((input, index) => {
+                input.value = (monster.mesoRawArray && monster.mesoRawArray[index] !== undefined)
+                    ? monster.mesoRawArray[index]
+                    : '';
+            });
+        },
+
+        resetForm() {
+            document.getElementById('monsterName').value = '';
+            document.getElementById('hits1').value = '';
+            document.getElementById('hits2').value = '';
+            document.getElementById('exp').value = '';
+            document.getElementById('hpDamage').value = '';
+            document.getElementById('hitChance').value = '';
+            document.getElementById('itemValue').value = '';
+
+            const mesoInputs = document.querySelectorAll('.meso-input');
+            mesoInputs.forEach(input => input.value = '');
+        }
+    };
+
+    /* ==========================================================================
+       4. VIEW RENDERER (UI 渲染層) - 專門更新畫面 HTML
+       ========================================================================== */
+    const ViewRenderer = {
+        renderCharSelect(characterList, currentCharacter) {
+            const select = document.getElementById('charSelect');
+            select.innerHTML = '';
+            characterList.forEach(char => {
+                const opt = document.createElement('option');
+                opt.value = char;
+                opt.innerText = char;
+                if (char === currentCharacter) opt.selected = true;
+                select.appendChild(opt);
+            });
+            document.getElementById('currentCharTitle').innerText = currentCharacter;
+            document.getElementById('costTitleText').innerText = `• ${currentCharacter} 計算基礎`;
+        },
+
+        updateCostTextDisplay(formData) {
+            document.getElementById('labelSkill1').innerText = `${formData.skill1Name}所需次數（下）`;
+            document.getElementById('labelSkill2').innerText = `${formData.skill2Name}所需次數（下）`;
+
+            const hpUnitCost = formData.hpPrice / (formData.hpRestore || 1);
+            const mpUnitCost = formData.mpPrice / (formData.mpRestore || 1);
+            const skill1Cost = formData.mpCost1 * mpUnitCost;
+            const skill2Cost = formData.mpCost2 * mpUnitCost;
+
+            const formatNum = (num) => Number(num.toFixed(2));
+
+            document.getElementById('costTextDisplay').innerHTML = `
+                1 HP：${formatNum(hpUnitCost)} 楓幣 | 1 MP：${formatNum(mpUnitCost)} 楓幣<br>
+                ${formData.skill1Name} ${formatNum(skill1Cost)} 幣/次、${formData.skill2Name} ${formatNum(skill2Cost)} 幣/次
+            `;
+        },
+
+        updateMesoInputsAndLabel() {
+            const mesoInputs = document.querySelectorAll('.meso-input');
+            let mesoSum = 0;
+            let mesoCount = 0;
+
+            mesoInputs.forEach(input => {
+                const val = parseFloat(input.value);
+                if (input.value !== '' && !isNaN(val) && val >= 0) {
+                    input.classList.add('has-value');
+                    mesoSum += val;
+                    mesoCount++;
+                } else {
+                    input.classList.remove('has-value');
+                }
+            });
+
+            const avgMeso = mesoCount > 0 ? (mesoSum / mesoCount) : 0;
+            const formattedAvg = Number(avgMeso.toFixed(2));
+
+            const mesoLabel = document.getElementById('mesoLabel');
+            if (mesoLabel) {
+                mesoLabel.innerText = `掉落楓幣（最多可填 10 次，目前平均 ${formattedAvg} 元）`;
+            }
+        },
+
+        renderResultCard(calc) {
+            const resultCard = document.getElementById('resultCard');
+            if (!calc) {
+                resultCard.style.display = 'none';
+                return;
+            }
+
+            resultCard.style.display = 'block';
+            if (calc.netProfitPerMonster >= 0) {
+                resultCard.className = 'result-card profit';
+                document.getElementById('statusTitle').innerText = '淨賺（越打越賺）';
+                document.getElementById('profitPerMonster').innerText = `每隻收益：+${calc.netProfitPerMonster.toFixed(1)} 楓幣`;
+            } else {
+                resultCard.className = 'result-card loss';
+                document.getElementById('statusTitle').innerText = '賠錢（越打越虧）';
+                document.getElementById('profitPerMonster').innerText = `每隻收益：${calc.netProfitPerMonster.toFixed(1)} 楓幣`;
+            }
+
+            const cpSign = calc.cpRatio >= 0 ? '+' : '';
+            document.getElementById('efficiencyMetrics').innerHTML = `
+                ${calc.mesoPerHit.toFixed(2)} 幣/下 | 
+                ${calc.expPerHit.toFixed(2)} EXP/下 <br>
+                <span style="color:#b45309; font-weight:bold;">CP值 (幣/EXP): ${cpSign}${calc.cpRatio.toFixed(4)}</span>
+            `;
+        },
+
+        renderMonsterList(monsters, currentSort, isCompactMode, onSelectMonster) {
+            const monsterList = document.getElementById('monsterList');
+            monsterList.innerHTML = '';
+
+            const visibleMonsters = monsters.filter(m => !m.hidden);
+            visibleMonsters.sort((a, b) => b[currentSort] - a[currentSort]);
+
+            // 計算前 25% CP 值的閥值與 ID 集合
+            const cpSorted = [...visibleMonsters].sort((a, b) => b.cpRatio - a.cpRatio);
+            const top25Count = Math.max(1, Math.ceil(visibleMonsters.length * 0.25));
+            const top25CpIds = new Set(
+                visibleMonsters.length > 0 ? cpSorted.slice(0, top25Count).map(m => m.id) : []
+            );
+
+            visibleMonsters.forEach((monster, index) => {
+                const li = document.createElement('li');
+
+                // 1. 排名顯示 (前三名 emoji)
+                let rankDisplay = `#${index + 1}`;
+                let rankClass = '';
+                if (index === 0) { rankDisplay = '🥇'; rankClass = 'rank-1'; }
+                else if (index === 1) { rankDisplay = '🥈'; rankClass = 'rank-2'; }
+                else if (index === 2) { rankDisplay = '🥉'; rankClass = 'rank-3'; }
+
+                // 2. 賺虧標籤 (▲ 賺, ▼ 虧, ▼ 血虧)
+                let profitBadge = '';
+                if (monster.mesoPerHit < -9.99) {
+                    profitBadge = `<span class="status-badge badge-loss">▼ 血虧</span>`;
+                } else if (monster.netProfit >= 0) {
+                    profitBadge = `<span class="status-badge badge-profit">▲ 賺</span>`;
+                } else {
+                    profitBadge = `<span class="status-badge badge-loss">▼ 虧</span>`;
+                }
+
+                // 3. CP 標籤 (前 25% 顯示 ⭐ 高 CP 值)
+                let cpBadge = '';
+                if (top25CpIds.has(monster.id)) {
+                    cpBadge = `<span class="status-badge badge-cp">⭐ 高 CP 值</span>`;
+                }
+
+                // 4. 重點資訊 (無冒號、主要數值 18px 放大、每隻收益優先)
+                let labelText = '';
+                let valueHtml = '';
+
+                const perHitSign = monster.mesoPerHit >= 0 ? '+' : '';
+                const perMonSign = monster.netProfit >= 0 ? '+' : '';
+                const cpSign = monster.cpRatio >= 0 ? '+' : '';
+
+                if (currentSort === 'mesoPerHit') {
+                    labelText = '楓幣收益';
+                    const valColor = monster.netProfit >= 0 ? '#16a34a' : '#dc2626';
+                    valueHtml = `<span style="font-size:18px; font-weight:800; color:${valColor};">${perMonSign}${monster.netProfit.toFixed(1)}</span>` +
+                                `<span style="font-size:13px; font-weight:bold; color:${valColor};"> 幣/隻</span> ` +
+                                `<span style="font-size:13px; margin-left:8px; font-weight:600; color:#64748b;">${perHitSign}${monster.mesoPerHit.toFixed(2)} 幣/下</span>`;
+                } else if (currentSort === 'expPerHit') {
+                    labelText = '經驗效率';
+                    const valColor = '#d97706';
+                    valueHtml = `<span style="font-size:18px; font-weight:800; color:${valColor};">${monster.expPerHit.toFixed(2)}</span>` +
+                                `<span style="font-size:13px; font-weight:bold; color:${valColor};"> EXP/下</span> ` +
+                                `<span style="font-size:13px; margin-left:8px; font-weight:600; color:#64748b;">${monster.exp.toFixed(0)} EXP/隻</span>`;
+                } else if (currentSort === 'cpRatio') {
+                    labelText = '每單位經驗獲益';
+                    const valColor = monster.cpRatio >= 0 ? '#b45309' : '#dc2626';
+                    valueHtml = `<span style="font-size:18px; font-weight:800; color:${valColor};">${cpSign}${monster.cpRatio.toFixed(4)}</span>` +
+                                `<span style="font-size:13px; font-weight:bold; color:${valColor};"> 幣/EXP</span>`;
+                }
+
+                // 5. 額外資訊色票配置
+                const secProfitColor = monster.netProfit >= 0 ? '#16a34a' : '#dc2626';
+                const secExpColor = '#d97706';
+                const secCpColor = '#b45309';
+
+                if (isCompactMode) {
+                    li.className = `monster-item compact ${rankClass}`;
+                    let compactVal = '';
+                    let compactSub = '';
+
+                    if (currentSort === 'mesoPerHit') {
+                        const valColor = monster.netProfit >= 0 ? '#16a34a' : '#dc2626';
+                        compactVal = `<span style="font-size:16px; font-weight:800; color:${valColor};">${perMonSign}${monster.netProfit.toFixed(1)}</span><span style="font-size:12px; color:${valColor};"> 幣/隻</span>`;
+                        compactSub = `${perHitSign}${monster.mesoPerHit.toFixed(2)} 幣/下`;
+                    } else if (currentSort === 'expPerHit') {
+                        compactVal = `<span style="font-size:16px; font-weight:800; color:#d97706;">${monster.expPerHit.toFixed(2)}</span><span style="font-size:12px; color:#d97706;"> EXP/下</span>`;
+                        compactSub = `${monster.exp.toFixed(0)} EXP/隻`;
+                    } else {
+                        const valColor = monster.cpRatio >= 0 ? '#b45309' : '#dc2626';
+                        compactVal = `<span style="font-size:16px; font-weight:800; color:${valColor};">${cpSign}${monster.cpRatio.toFixed(4)}</span><span style="font-size:12px; color:${valColor};"> CP</span>`;
+                        compactSub = `${perMonSign}${monster.netProfit.toFixed(1)}幣 / ${monster.exp.toFixed(0)}EXP`;
+                    }
+
+                    li.innerHTML = `
+                        <div class="compact-left">
+                            <span style="font-weight:bold; width:24px; text-align:center;">${rankDisplay}</span>
+                            <span class="monster-title" style="font-size:14px;">${monster.name}</span>
+                            ${profitBadge}
+                            ${cpBadge}
+                        </div>
+                        <div class="compact-right">
+                            <div style="text-align:right;">
+                                <div class="compact-val">${compactVal}</div>
+                                <div class="compact-sub">${compactSub}</div>
+                            </div>
+                        </div>
+                    `;
+                } else {
+                    li.className = `monster-item ${rankClass}`;
+                    li.innerHTML = `
+                        <div class="monster-header">
+                            <span style="font-weight:bold; font-size:18px; width:24px; text-align:center;">${rankDisplay}</span>
+                            <span class="monster-title">${monster.name}</span>
+                            ${profitBadge}
+                            ${cpBadge}
+                        </div>
+
+                        <div class="primary-stat">
+                            <span class="label">${labelText}</span>
+                            <span class="value">
+                                ${valueHtml}
+                            </span>
+                        </div>
+
+                        <div class="secondary-stats">
+                            <div>每隻楓幣: <span style="color:${secProfitColor};">${perMonSign}${monster.netProfit.toFixed(1)}</span></div>
+                            <div>每擊經驗: <span style="color:${secExpColor};">${monster.expPerHit.toFixed(1)}</span></div>
+                            <div>CP值: <span style="color:${secCpColor};">${cpSign}${monster.cpRatio.toFixed(3)}</span></div>
+                        </div>
+                    `;
+                }
+
+                li.onclick = () => onSelectMonster(monster.id);
+                monsterList.appendChild(li);
+            });
+        },
+
+        renderManageModal(monsters, onToggleVisibility, onDeleteMonster) {
+            const manageList = document.getElementById('manageList');
+            manageList.innerHTML = '';
+
+            if (monsters.length === 0) {
+                manageList.innerHTML = '<div style="text-align:center; color:#999; padding:20px;">尚無怪物資料</div>';
+                return;
+            }
+
+            monsters.forEach(monster => {
+                const item = document.createElement('div');
+                item.className = 'manage-item';
+
+                const leftDiv = document.createElement('div');
+                leftDiv.style.cssText = 'display:flex; align-items:center; gap:8px;';
+
+                const checkbox = document.createElement('input');
+                checkbox.type = 'checkbox';
+                checkbox.checked = !monster.hidden;
+                checkbox.onchange = (e) => onToggleVisibility(monster.id, e.target.checked);
+
+                const nameSpan = document.createElement('span');
+                nameSpan.style.fontWeight = 'bold';
+                nameSpan.innerText = monster.name;
+
+                const hitsSpan = document.createElement('span');
+                hitsSpan.style.cssText = 'font-size:12px; color:#666;';
+                hitsSpan.innerText = `(${monster.hits}下)`;
+
+                leftDiv.appendChild(checkbox);
+                leftDiv.appendChild(nameSpan);
+                leftDiv.appendChild(hitsSpan);
+
+                const delBtn = document.createElement('button');
+                delBtn.className = 'btn-modal-del';
+                delBtn.innerText = '刪除';
+                delBtn.onclick = () => onDeleteMonster(monster.id);
+
+                item.appendChild(leftDiv);
+                item.appendChild(delBtn);
+                manageList.appendChild(item);
+            });
+        },
+
+        setSaveButtonEditState(isEditing) {
+            const saveBtn = document.getElementById('saveBtn');
+            const cancelBtn = document.getElementById('cancelBtn');
+
+            if (isEditing) {
+                saveBtn.innerText = '更新怪物數據';
+                saveBtn.style.backgroundColor = '#e67e22';
+                cancelBtn.style.display = 'block';
+            } else {
+                saveBtn.innerText = '儲存怪物數據';
+                saveBtn.style.backgroundColor = '#27ae60';
+                cancelBtn.style.display = 'none';
+            }
+        }
+    };
+
+    /* ==========================================================================
+       5. APP CONTROLLER (應用主控層) - 整合狀態與事件
+       ========================================================================== */
+    const AppState = {
+        currentSort: 'mesoPerHit',
+        currentCharacter: '預設角色',
+        characterList: ['預設角色'],
+        editingMonsterId: null,
+        isCompactMode: false
+    };
 
     function initData() {
-        const storedChars = localStorage.getItem('maple_characters');
-        if (storedChars) {
-            characterList = JSON.parse(storedChars);
-        } else {
-            localStorage.setItem('maple_characters', JSON.stringify(characterList));
-        }
+        AppState.characterList = StorageService.getCharacters();
+        StorageService.saveCharacters(AppState.characterList);
 
-        const storedCurrent = localStorage.getItem('maple_current_char');
-        if (storedCurrent && characterList.includes(storedCurrent)) {
-            currentCharacter = storedCurrent;
-        } else {
-            currentCharacter = characterList[0];
-        }
+        AppState.currentCharacter = StorageService.getCurrentChar(AppState.characterList);
+        StorageService.saveCurrentChar(AppState.currentCharacter);
 
-        renderCharSelect();
+        const costConfig = StorageService.getCostConfig(AppState.currentCharacter);
+        FormController.populateCostConfig(costConfig);
+
+        ViewRenderer.renderCharSelect(AppState.characterList, AppState.currentCharacter);
+        updateCostConfig();
         renderList();
     }
 
-    function renderCharSelect() {
-        const select = document.getElementById('charSelect');
-        select.innerHTML = '';
-        characterList.forEach(char => {
-            const opt = document.createElement('option');
-            opt.value = char;
-            opt.innerText = char;
-            if (char === currentCharacter) opt.selected = true;
-            select.appendChild(opt);
+    function toggleCostConfig() {
+        const panel = document.getElementById('costConfigPanel');
+        const btn = document.getElementById('toggleCostBtn');
+        const isOpening = panel.style.display !== 'block';
+
+        panel.style.display = isOpening ? 'block' : 'none';
+        btn.innerText = isOpening ? '💾 儲存' : '✏️ 編輯';
+    }
+
+    function updateCostConfig() {
+        const formData = FormController.getFormData();
+        StorageService.saveCostConfig(AppState.currentCharacter, {
+            hpRestore: formData.hpRestore,
+            hpPrice: formData.hpPrice,
+            mpRestore: formData.mpRestore,
+            mpPrice: formData.mpPrice,
+            skill1Name: formData.skill1Name,
+            mpCost1: formData.mpCost1,
+            skill2Name: formData.skill2Name,
+            mpCost2: formData.mpCost2
         });
-        document.getElementById('currentCharTitle').innerText = currentCharacter;
+        ViewRenderer.updateCostTextDisplay(formData);
+        calculate();
     }
 
     function switchCharacter() {
         cancelEdit();
         const select = document.getElementById('charSelect');
-        currentCharacter = select.value;
-        localStorage.setItem('maple_current_char', currentCharacter);
-        document.getElementById('currentCharTitle').innerText = currentCharacter;
+        AppState.currentCharacter = select.value;
+        StorageService.saveCurrentChar(AppState.currentCharacter);
+
+        const costConfig = StorageService.getCostConfig(AppState.currentCharacter);
+        FormController.populateCostConfig(costConfig);
+
+        ViewRenderer.renderCharSelect(AppState.characterList, AppState.currentCharacter);
+        updateCostConfig();
         renderList();
     }
 
@@ -504,115 +1085,151 @@
         if (!name || name.trim() === '') return;
         
         const cleanName = name.trim();
-        if (characterList.includes(cleanName)) {
+        if (AppState.characterList.includes(cleanName)) {
             alert('角色名稱已存在！');
             return;
         }
 
-        characterList.push(cleanName);
-        currentCharacter = cleanName;
+        AppState.characterList.push(cleanName);
+        AppState.currentCharacter = cleanName;
         
-        localStorage.setItem('maple_characters', JSON.stringify(characterList));
-        localStorage.setItem('maple_current_char', currentCharacter);
+        StorageService.saveCharacters(AppState.characterList);
+        StorageService.saveCurrentChar(AppState.currentCharacter);
+
+        const costConfig = StorageService.getCostConfig(cleanName);
+        FormController.populateCostConfig(costConfig);
 
         cancelEdit();
-        renderCharSelect();
+        ViewRenderer.renderCharSelect(AppState.characterList, AppState.currentCharacter);
+        updateCostConfig();
         renderList();
     }
 
     function deleteCharacter() {
-        if (characterList.length <= 1) {
+        if (AppState.characterList.length <= 1) {
             alert('至少需要保留一個角色！');
             return;
         }
 
-        if (confirm(`確定要刪除角色「${currentCharacter}」及其所有怪物紀錄嗎？`)) {
-            localStorage.removeItem(`maple_monsters_${currentCharacter}`);
+        if (confirm("確定要刪除嗎？")) {
+            StorageService.removeMonsterData(AppState.currentCharacter);
 
-            characterList = characterList.filter(c => c !== currentCharacter);
-            currentCharacter = characterList[0];
+            AppState.characterList = AppState.characterList.filter(c => c !== AppState.currentCharacter);
+            AppState.currentCharacter = AppState.characterList[0];
 
-            localStorage.setItem('maple_characters', JSON.stringify(characterList));
-            localStorage.setItem('maple_current_char', currentCharacter);
+            StorageService.saveCharacters(AppState.characterList);
+            StorageService.saveCurrentChar(AppState.currentCharacter);
+
+            const costConfig = StorageService.getCostConfig(AppState.currentCharacter);
+            FormController.populateCostConfig(costConfig);
 
             cancelEdit();
-            renderCharSelect();
+            ViewRenderer.renderCharSelect(AppState.characterList, AppState.currentCharacter);
+            updateCostConfig();
             renderList();
         }
     }
 
-    function getCalculations() {
-        const hits = parseFloat(document.getElementById('hits').value);
-        const exp = parseFloat(document.getElementById('exp').value) || 0;
-        const hpDamage = parseFloat(document.getElementById('hpDamage').value) || 0;
-        const hitChance = parseFloat(document.getElementById('hitChance').value) || 0;
-        const itemValue = parseFloat(document.getElementById('itemValue').value) || 0;
-        
-        const mesoInputs = document.querySelectorAll('.meso-input');
-        let mesoSum = 0;
-        let mesoCount = 0;
-        let mesoRawArray = [];
-        
-        mesoInputs.forEach(input => {
-            const val = parseFloat(input.value);
-            if (!isNaN(val) && val >= 0) {
-                mesoSum += val;
-                mesoCount++;
-                mesoRawArray.push(val);
-            } else {
-                mesoRawArray.push("");
-            }
-        });
+    /* 匯出資料功能 */
+    function exportCharacterData() {
+        const charName = AppState.currentCharacter;
+        const costConfig = StorageService.getCostConfig(charName);
+        const monsters = StorageService.getMonsters(charName);
 
-        if (isNaN(hits) || hits <= 0) return null;
-
-        const avgMeso = mesoCount > 0 ? (mesoSum / mesoCount) : 0;
-        const mpCostPerHit = 20 * (192 / 100); 
-        const totalMpCost = hits * mpCostPerHit;
-        const avgHpCostPerMonster = hitChance > 0 ? (hpDamage / hitChance) : 0;
-
-        const totalCost = totalMpCost + avgHpCostPerMonster;
-        const totalRevenue = avgMeso + itemValue;
-        const netProfitPerMonster = totalRevenue - totalCost;
-        
-        const mesoPerHit = netProfitPerMonster / hits;
-        const expPerHit = exp / hits;
-        // CP值計算：每擊楓幣收益 / 每擊經驗值 (幣/EXP)
-        const cpRatio = expPerHit > 0 ? (mesoPerHit / expPerHit) : 0;
-
-        return {
-            hits, exp, hpDamage, hitChance, itemValue, avgMeso, mesoRawArray,
-            totalMpCost, avgHpCostPerMonster, netProfitPerMonster, mesoPerHit, expPerHit, cpRatio
+        const exportPayload = {
+            version: "1.0",
+            type: "maple_calc_character_data",
+            characterName: charName,
+            costConfig: costConfig,
+            monsters: monsters
         };
+
+        const blob = new Blob([JSON.stringify(exportPayload, null, 2)], { type: "application/json" });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `${charName}_計算數據.json`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+    }
+
+    /* 匯入資料功能 */
+    function triggerImport() {
+        document.getElementById('importFileInput').click();
+    }
+
+    function handleFileImport(event) {
+        const file = event.target.files[0];
+        if (!file) return;
+
+        const reader = new FileReader();
+        reader.onload = function(e) {
+            try {
+                const data = JSON.parse(e.target.result);
+                if (!data || !data.characterName) {
+                    alert('匯入失敗：檔案格式不相符（缺少角色名稱）');
+                    return;
+                }
+
+                let targetName = data.characterName.trim();
+                if (AppState.characterList.includes(targetName)) {
+                    const overwrite = confirm(`角色「${targetName}」已存在，是否要覆蓋舊資料？\n（按下「取消」可改名匯入）`);
+                    if (!overwrite) {
+                        const newName = prompt('請輸入新的角色名稱：', `${targetName}_匯入`);
+                        if (!newName || newName.trim() === '') {
+                            event.target.value = '';
+                            return;
+                        }
+                        targetName = newName.trim();
+                    }
+                }
+
+                if (!AppState.characterList.includes(targetName)) {
+                    AppState.characterList.push(targetName);
+                    StorageService.saveCharacters(AppState.characterList);
+                }
+
+                AppState.currentCharacter = targetName;
+                StorageService.saveCurrentChar(targetName);
+
+                if (data.costConfig) {
+                    StorageService.saveCostConfig(targetName, data.costConfig);
+                }
+
+                if (Array.isArray(data.monsters)) {
+                    StorageService.saveMonsters(targetName, data.monsters);
+                }
+
+                const costConfig = StorageService.getCostConfig(targetName);
+                FormController.populateCostConfig(costConfig);
+
+                cancelEdit();
+                ViewRenderer.renderCharSelect(AppState.characterList, AppState.currentCharacter);
+                updateCostConfig();
+                renderList();
+
+                alert(`成功匯入角色「${targetName}」的計算數據！`);
+            } catch (err) {
+                alert('匯入失敗：檔案讀取或解析時發生錯誤');
+                console.error(err);
+            } finally {
+                event.target.value = '';
+            }
+        };
+        reader.readAsText(file);
+    }
+
+    function getCalculations() {
+        const formData = FormController.getFormData();
+        return CalcEngine.compute(formData);
     }
 
     function calculate() {
         const calc = getCalculations();
-        const resultCard = document.getElementById('resultCard');
-
-        if (!calc) {
-            resultCard.style.display = 'none';
-            return;
-        }
-
-        resultCard.style.display = 'block';
-
-        if (calc.netProfitPerMonster >= 0) {
-            resultCard.className = 'result-card profit';
-            document.getElementById('statusTitle').innerText = '淨賺（越打越賺）';
-            document.getElementById('profitPerMonster').innerText = `每隻收益：+${calc.netProfitPerMonster.toFixed(1)} 楓幣`;
-        } else {
-            resultCard.className = 'result-card loss';
-            document.getElementById('statusTitle').innerText = '賠錢（越打越虧）';
-            document.getElementById('profitPerMonster').innerText = `每隻收益：${calc.netProfitPerMonster.toFixed(1)} 楓幣`;
-        }
-
-        const cpSign = calc.cpRatio >= 0 ? '+' : '';
-        document.getElementById('efficiencyMetrics').innerHTML = `
-            ${calc.mesoPerHit.toFixed(2)} 幣/下 | 
-            ${calc.expPerHit.toFixed(2)} EXP/下 <br>
-            <span style="color:#b45309; font-weight:bold;">CP值 (幣/EXP): ${cpSign}${calc.cpRatio.toFixed(4)}</span>
-        `;
+        ViewRenderer.renderResultCard(calc);
+        ViewRenderer.updateMesoInputsAndLabel();
     }
 
     function saveMonster() {
@@ -628,13 +1245,19 @@
             return;
         }
 
-        const monsters = getStoredMonsters();
-        const existingMonster = monsters.find(m => m.id === editingMonsterId);
+        const monsters = StorageService.getMonsters(AppState.currentCharacter);
+        const existingMonster = monsters.find(m => m.id === AppState.editingMonsterId);
 
         const monsterData = {
-            id: editingMonsterId || Date.now(),
+            id: AppState.editingMonsterId || Date.now(),
             name: name,
-            hits: calc.hits,
+            skill1Name: calc.skill1Name,
+            hits1: calc.hits1,
+            mpCost1: calc.mpCost1,
+            skill2Name: calc.skill2Name,
+            hits2: calc.hits2,
+            mpCost2: calc.mpCost2,
+            hits: calc.totalHits,
             exp: calc.exp,
             hpDamage: calc.hpDamage,
             hitChance: calc.hitChance,
@@ -648,83 +1271,41 @@
             hidden: existingMonster ? (existingMonster.hidden || false) : false
         };
 
-        if (editingMonsterId) {
-            const index = monsters.findIndex(m => m.id === editingMonsterId);
+        if (AppState.editingMonsterId) {
+            const index = monsters.findIndex(m => m.id === AppState.editingMonsterId);
             if (index !== -1) monsters[index] = monsterData;
         } else {
             monsters.push(monsterData);
         }
 
-        localStorage.setItem(`maple_monsters_${currentCharacter}`, JSON.stringify(monsters));
+        StorageService.saveMonsters(AppState.currentCharacter, monsters);
 
         cancelEdit();
         renderList();
     }
 
     function editMonster(id) {
-        const monsters = getStoredMonsters();
+        const monsters = StorageService.getMonsters(AppState.currentCharacter);
         const target = monsters.find(m => m.id === id);
         if (!target) return;
 
-        editingMonsterId = target.id;
-
-        document.getElementById('monsterName').value = target.name;
-        document.getElementById('hits').value = target.hits;
-        document.getElementById('exp').value = target.exp;
-        document.getElementById('hpDamage').value = target.hpDamage || '';
-        document.getElementById('hitChance').value = target.hitChance || '';
-        document.getElementById('itemValue').value = target.itemValue || '';
-
-        const mesoInputs = document.querySelectorAll('.meso-input');
-        mesoInputs.forEach((input, index) => {
-            if (target.mesoRawArray && target.mesoRawArray[index] !== undefined) {
-                input.value = target.mesoRawArray[index];
-            } else {
-                input.value = '';
-            }
-        });
-
-        document.getElementById('saveBtn').innerText = '更新怪物數據';
-        document.getElementById('saveBtn').style.backgroundColor = '#e67e22';
-        document.getElementById('cancelBtn').style.display = 'block';
+        AppState.editingMonsterId = target.id;
+        FormController.populateForm(target);
+        ViewRenderer.setSaveButtonEditState(true);
 
         calculate();
         window.scrollTo({ top: 0, behavior: 'smooth' });
     }
 
     function cancelEdit() {
-        editingMonsterId = null;
-        document.getElementById('monsterName').value = '';
-        document.getElementById('hits').value = '';
-        document.getElementById('exp').value = '';
-        document.getElementById('hpDamage').value = '';
-        document.getElementById('hitChance').value = '';
-        document.getElementById('itemValue').value = '';
-
-        const mesoInputs = document.querySelectorAll('.meso-input');
-        mesoInputs.forEach(input => input.value = '');
-
-        document.getElementById('saveBtn').innerText = '儲存怪物數據';
-        document.getElementById('saveBtn').style.backgroundColor = '#27ae60';
-        document.getElementById('cancelBtn').style.display = 'none';
-
+        AppState.editingMonsterId = null;
+        FormController.resetForm();
+        ViewRenderer.setSaveButtonEditState(false);
         calculate();
     }
 
-    function getStoredMonsters() {
-        const data = localStorage.getItem(`maple_monsters_${currentCharacter}`);
-        let monsters = data ? JSON.parse(data) : [];
-        // 確保舊資料也有 cpRatio 屬性
-        return monsters.map(m => {
-            if (m.cpRatio === undefined) {
-                m.cpRatio = m.expPerHit > 0 ? (m.mesoPerHit / m.expPerHit) : 0;
-            }
-            return m;
-        });
-    }
-
     function setSort(sortType) {
-        currentSort = sortType;
+        AppState.currentSort = sortType;
         document.getElementById('tabMeso').classList.toggle('active', sortType === 'mesoPerHit');
         document.getElementById('tabExp').classList.toggle('active', sortType === 'expPerHit');
         document.getElementById('tabCP').classList.toggle('active', sortType === 'cpRatio');
@@ -732,155 +1313,19 @@
     }
 
     function toggleViewMode() {
-        isCompactMode = !isCompactMode;
-        const btn = document.getElementById('btnModeCompact');
-        const icon = document.getElementById('compactIcon');
-        
-        btn.classList.toggle('active', isCompactMode);
-        icon.innerText = isCompactMode ? '☰☰' : '☰';
-        
+        AppState.isCompactMode = !AppState.isCompactMode;
+        document.getElementById('btnModeCompact').classList.toggle('active', AppState.isCompactMode);
         renderList();
     }
 
-    // 計算 CP 值最高的前 30% 怪物集合
-    function calculateHighCPSet(monsters) {
-        if (monsters.length === 0) return new Set();
-
-        const cpSorted = [...monsters].sort((a, b) => b.cpRatio - a.cpRatio);
-        const thresholdCount = Math.max(1, Math.ceil(monsters.length * 0.3));
-
-        const cpSet = new Set(cpSorted.slice(0, thresholdCount).map(m => m.id));
-        return cpSet;
-    }
-
-    // 渲染右側怪物清單
     function renderList() {
-        const listEl = document.getElementById('monsterList');
-        let monsters = getStoredMonsters();
-
-        // 排序
-        monsters.sort((a, b) => b[currentSort] - a[currentSort]);
-
-        // 過濾掉隱藏怪物
-        const visibleMonsters = monsters.filter(m => !m.hidden);
-
-        listEl.innerHTML = '';
-
-        if (visibleMonsters.length === 0) {
-            listEl.innerHTML = `<li style="text-align:center; color:#999; padding:20px;">尚無顯示的怪物資料</li>`;
-            return;
-        }
-
-        // 計算高 CP 值集合
-        const cpSet = calculateHighCPSet(visibleMonsters);
-
-        visibleMonsters.forEach((m, index) => {
-            const li = document.createElement('li');
-            li.onclick = () => editMonster(m.id);
-
-            let rankClass = '';
-            let emojiPrefix = `#${index + 1}`;
-            if (index === 0) { rankClass = 'rank-1'; emojiPrefix = '🥇 1'; }
-            else if (index === 1) { rankClass = 'rank-2'; emojiPrefix = '🥈 2'; }
-            else if (index === 2) { rankClass = 'rank-3'; emojiPrefix = '🥉 3'; }
-
-            const isProfit = m.netProfit >= 0;
-            const badgeHtml = isProfit 
-                ? `<span class="status-badge badge-profit">▲ 賺</span>` 
-                : `<span class="status-badge badge-loss">▼ 虧</span>`;
-            
-            const cpHtml = cpSet.has(m.id) ? `<span class="status-badge badge-cp">⭐ 高 CP 值</span>` : '';
-
-            const profitSign = isProfit ? '+' : '';
-            const profitColor = isProfit ? '#16a34a' : '#dc2626';
-            const cpSign = m.cpRatio >= 0 ? '+' : '';
-
-            if (isCompactMode) {
-                // 緊湊模式
-                let valText = '';
-                let subText = '';
-
-                if (currentSort === 'mesoPerHit') {
-                    valText = `<span style="color:${profitColor}">${profitSign}${m.mesoPerHit.toFixed(2)} 幣/下</span>`;
-                    subText = `${m.expPerHit.toFixed(1)} EXP`;
-                } else if (currentSort === 'expPerHit') {
-                    valText = `<span style="color:#d97706">${m.expPerHit.toFixed(1)} EXP/下</span>`;
-                    subText = `${profitSign}${m.mesoPerHit.toFixed(2)} 幣`;
-                } else {
-                    valText = `<span style="color:#b45309">${cpSign}${m.cpRatio.toFixed(3)} 幣/EXP</span>`;
-                    subText = `${m.expPerHit.toFixed(0)} EXP`;
-                }
-
-                li.className = `monster-item compact ${rankClass}`;
-                li.innerHTML = `
-                    <div class="compact-left">
-                        <span style="font-weight:bold; font-size:12px; color:#64748b; min-width:32px;">${emojiPrefix}</span>
-                        <span class="monster-title" style="font-size:14px;">${m.name}</span>
-                        ${badgeHtml}
-                        ${cpHtml}
-                    </div>
-                    <div class="compact-right">
-                        <span class="compact-val">${valText}</span>
-                        <span class="compact-sub">(${subText})</span>
-                    </div>
-                `;
-            } else {
-                // 詳細模式
-                li.className = `monster-item ${rankClass}`;
-
-                let primaryHtml = '';
-                let secondaryHtml = '';
-
-                if (currentSort === 'mesoPerHit') {
-                    primaryHtml = `
-                        <div class="primary-stat">
-                            <span class="label">每擊淨收益</span>
-                            <span class="value" style="color: ${profitColor};">${profitSign}${m.mesoPerHit.toFixed(2)} <span style="font-size: 13px;">幣/下</span></span>
-                        </div>
-                    `;
-                } else if (currentSort === 'expPerHit') {
-                    primaryHtml = `
-                        <div class="primary-stat">
-                            <span class="label">每擊經驗效率</span>
-                            <span class="value" style="color: #d97706;">${m.expPerHit.toFixed(2)} <span style="font-size: 13px;">EXP/下</span></span>
-                        </div>
-                    `;
-                } else {
-                    primaryHtml = `
-                        <div class="primary-stat">
-                            <span class="label">CP值 (每單位經驗獲益)</span>
-                            <span class="value" style="color: #b45309;">${cpSign}${m.cpRatio.toFixed(4)} <span style="font-size: 13px;">幣/EXP</span></span>
-                        </div>
-                    `;
-                }
-
-                secondaryHtml = `
-                    <div class="secondary-stats">
-                        <div>每擊楓幣: <span style="color:${profitColor}">${profitSign}${m.mesoPerHit.toFixed(2)}</span></div>
-                        <div>每擊經驗: <span>${m.expPerHit.toFixed(1)}</span></div>
-                        <div>CP值: <span style="color:#b45309">${cpSign}${m.cpRatio.toFixed(3)}</span></div>
-                    </div>
-                `;
-
-                li.innerHTML = `
-                    <div class="monster-header">
-                        <span style="font-weight:bold; font-size:13px; color:#475569;">${emojiPrefix.includes('#') ? emojiPrefix : emojiPrefix + ' 名'}</span>
-                        <span class="monster-title">${m.name}</span>
-                        ${badgeHtml}
-                        ${cpHtml}
-                    </div>
-                    ${primaryHtml}
-                    ${secondaryHtml}
-                `;
-            }
-
-            listEl.appendChild(li);
-        });
+        const monsters = StorageService.getMonsters(AppState.currentCharacter);
+        ViewRenderer.renderMonsterList(monsters, AppState.currentSort, AppState.isCompactMode, editMonster);
     }
 
-    // --- 管理彈窗邏輯 ---
     function openManageModal() {
-        renderManageList();
+        const monsters = StorageService.getMonsters(AppState.currentCharacter);
+        ViewRenderer.renderManageModal(monsters, toggleMonsterVisibility, deleteSingleMonster);
         document.getElementById('manageModal').style.display = 'flex';
     }
 
@@ -889,57 +1334,26 @@
         renderList();
     }
 
-    function renderManageList() {
-        const container = document.getElementById('manageList');
-        const monsters = getStoredMonsters();
-
-        if (monsters.length === 0) {
-            container.innerHTML = `<div style="text-align:center; color:#999; padding:20px;">尚無怪物資料</div>`;
-            return;
-        }
-
-        container.innerHTML = '';
-        monsters.forEach(m => {
-            const div = document.createElement('div');
-            div.className = 'manage-item';
-            div.innerHTML = `
-                <div>
-                    <strong>${m.name}</strong>
-                </div>
-                <div style="display:flex; align-items:center; gap:12px;">
-                    <label style="font-size:12px; cursor:pointer; margin:0;">
-                        <input type="checkbox" ${m.hidden ? 'checked' : ''} onchange="toggleHideMonster(${m.id})"> 隱藏
-                    </label>
-                    <button class="btn-modal-del" onclick="confirmDeleteMonster(${m.id}, '${m.name}')">刪除</button>
-                </div>
-            `;
-            container.appendChild(div);
-        });
-    }
-
-    function toggleHideMonster(id) {
-        const monsters = getStoredMonsters();
+    function toggleMonsterVisibility(id, visible) {
+        const monsters = StorageService.getMonsters(AppState.currentCharacter);
         const target = monsters.find(m => m.id === id);
         if (target) {
-            target.hidden = !target.hidden;
-            localStorage.setItem(`maple_monsters_${currentCharacter}`, JSON.stringify(monsters));
+            target.hidden = !visible;
+            StorageService.saveMonsters(AppState.currentCharacter, monsters);
         }
     }
 
-    function confirmDeleteMonster(id, name) {
-        if (confirm(`確定要永久刪除怪物「${name}」的紀錄嗎？`)) {
-            if (editingMonsterId === id) cancelEdit();
-
-            let monsters = getStoredMonsters();
+    function deleteSingleMonster(id) {
+        if (confirm('確定要刪除這隻怪物的紀錄嗎？')) {
+            let monsters = StorageService.getMonsters(AppState.currentCharacter);
             monsters = monsters.filter(m => m.id !== id);
-            localStorage.setItem(`maple_monsters_${currentCharacter}`, JSON.stringify(monsters));
-            
-            renderManageList();
+            StorageService.saveMonsters(AppState.currentCharacter, monsters);
+            openManageModal();
+            renderList();
         }
     }
 
     window.onload = initData;
 </script>
-
 </body>
 </html>
