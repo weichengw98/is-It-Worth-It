@@ -75,7 +75,6 @@
         
         .btn-google { background: #4285f4; color: white; display: flex; align-items: center; gap: 6px; }
         .btn-google:hover { background: #357ae8; }
-        .btn-google.logged-in { background: #10b981; }
         
         .cost-info {
             font-size: 13px;
@@ -350,7 +349,7 @@
                 <button class="btn-sm btn-del" onclick="deleteCharacter()">刪除</button>
                 <button class="btn-sm btn-import" onclick="triggerImport()">匯入</button>
                 <button class="btn-sm btn-export" onclick="exportCharacterData()">匯出</button>
-                <button class="btn-sm btn-google" id="btnGoogleSync" onclick="handleGoogleSyncClick()">Google 雲端同步</button>
+                <button class="btn-sm btn-google" onclick="openGoogleSyncModal()">Google 同步</button>
                 <input type="file" id="importFileInput" accept=".json" style="display:none;" onchange="handleFileImport(event)">
             </div>
         </div>
@@ -493,6 +492,7 @@
     </div>
 </div>
 
+<!-- 編輯清單彈窗 -->
 <div class="modal-backdrop" id="manageModal">
     <div class="modal">
         <div class="modal-header">
@@ -506,20 +506,38 @@
     </div>
 </div>
 
+<!-- Google Drive 雲端同步彈窗 -->
+<div class="modal-backdrop" id="googleModal">
+    <div class="modal">
+        <div class="modal-header">
+            <h3 style="margin:0; border:none; padding:0;">☁️ Google Drive 雲端同步</h3>
+            <button onclick="closeGoogleSyncModal()" style="border:none; background:none; font-size:18px; cursor:pointer;">✕</button>
+        </div>
+        <div class="modal-body">
+            <p style="font-size: 13px; color: #666; margin-top:0;">
+                資料會備份至您個人 Google Drive 的<b>隱藏專屬資料夾 (appDataFolder)</b>。請點選下方動作進行跨裝置同步：
+            </p>
+            <div style="display: flex; gap: 8px; margin-top: 15px;">
+                <button class="btn-sm btn-google" style="flex:1; padding:12px; justify-content:center;" onclick="triggerDriveAction('upload')">⬆️ 備份至雲端</button>
+                <button class="btn-sm btn-import" style="flex:1; padding:12px; justify-content:center;" onclick="triggerDriveAction('download')">⬇️ 從雲端讀取</button>
+            </div>
+            <div id="syncStatus" style="font-size: 13px; margin-top: 15px; text-align: center; font-weight: bold; color: #2563eb;"></div>
+        </div>
+    </div>
+</div>
+
 <script>
     const GOOGLE_CLIENT_ID = '929584514213-n692lpgr3lekqpp8gnr3d6n5k9ucb71r.apps.googleusercontent.com';
 
     /* ==========================================================================
-       1. STORAGE SERVICE (資料持久化層)
+       1. STORAGE SERVICE
        ========================================================================== */
     const StorageService = {
         KEYS: {
             CHARACTERS: 'maple_characters',
             CURRENT_CHAR: 'maple_current_char',
             MONSTERS_PREFIX: 'maple_monsters_',
-            COST_PREFIX: 'maple_cost_',
-            G_TOKEN: 'maple_g_token',
-            G_EXPIRES: 'maple_g_expires'
+            COST_PREFIX: 'maple_cost_'
         },
 
         getCharacters() {
@@ -573,26 +591,6 @@
             localStorage.removeItem(`${this.KEYS.COST_PREFIX}${charName}`);
         },
 
-        saveSavedToken(token, expiresInSeconds) {
-            const expiresAt = Date.now() + (expiresInSeconds * 1000) - 60000;
-            localStorage.setItem(this.KEYS.G_TOKEN, token);
-            localStorage.setItem(this.KEYS.G_EXPIRES, expiresAt.toString());
-        },
-
-        getSavedToken() {
-            const token = localStorage.getItem(this.KEYS.G_TOKEN);
-            const expiresAt = parseInt(localStorage.getItem(this.KEYS.G_EXPIRES) || '0', 10);
-            if (token && Date.now() < expiresAt) {
-                return token;
-            }
-            return null;
-        },
-
-        clearSavedToken() {
-            localStorage.removeItem(this.KEYS.G_TOKEN);
-            localStorage.removeItem(this.KEYS.G_EXPIRES);
-        },
-
         exportAllData() {
             const chars = this.getCharacters();
             const data = {
@@ -622,44 +620,11 @@
                 Object.keys(data.monsters).forEach(c => this.saveMonsters(c, data.monsters[c]));
             }
             return true;
-        },
-
-        mergeWithCloudData(cloudData) {
-            const localData = this.exportAllData();
-            if (!cloudData || !Array.isArray(cloudData.characters)) return localData;
-
-            const charSet = new Set([...localData.characters, ...cloudData.characters]);
-            const mergedCharacters = Array.from(charSet);
-            const mergedCosts = { ...(cloudData.costs || {}), ...(localData.costs || {}) };
-            const mergedMonsters = {};
-
-            mergedCharacters.forEach(char => {
-                const localList = localData.monsters[char] || [];
-                const cloudList = cloudData.monsters[char] || [];
-                const mMap = new Map();
-
-                cloudList.forEach(m => mMap.set(m.id || m.name, m));
-                localList.forEach(m => mMap.set(m.id || m.name, m));
-
-                mergedMonsters[char] = Array.from(mMap.values());
-            });
-
-            const mergedData = {
-                version: "2.0",
-                updatedAt: Date.now(),
-                characters: mergedCharacters,
-                currentChar: localData.currentChar || cloudData.currentChar || mergedCharacters[0],
-                costs: mergedCosts,
-                monsters: mergedMonsters
-            };
-
-            this.importAllData(mergedData);
-            return mergedData;
         }
     };
 
     /* ==========================================================================
-       2. CALC ENGINE (計算核心層)
+       2. CALC ENGINE
        ========================================================================== */
     const CalcEngine = {
         compute(params) {
@@ -782,7 +747,7 @@
     };
 
     /* ==========================================================================
-       4. VIEW RENDERER (UI 渲染層)
+       4. VIEW RENDERER
        ========================================================================== */
     const ViewRenderer = {
         renderCharSelect(characterList, currentCharacter) {
@@ -1050,25 +1015,23 @@
             }
         },
 
-        updateSyncButtonStatus(isLoggedIn) {
-            const btn = document.getElementById('btnGoogleSync');
-            if (isLoggedIn) {
-                btn.className = 'btn-sm btn-google logged-in';
-                btn.innerText = '☁️ 雲端已連線';
-            } else {
-                btn.className = 'btn-sm btn-google';
-                btn.innerText = 'Google 雲端同步';
+        updateSyncStatusText(msg, color = '#2563eb') {
+            const statusEl = document.getElementById('syncStatus');
+            if (statusEl) {
+                statusEl.innerText = msg;
+                statusEl.style.color = color;
             }
         }
     };
 
     /* ==========================================================================
-       5. GOOGLE DRIVE SYNC SERVICE (智慧雙向自動同步服務)
+       5. GOOGLE DRIVE SYNC SERVICE (清晰透明備份機制)
        ========================================================================== */
     const GoogleDriveService = {
         FILE_NAME: 'maple_calculator_cloud_data.json',
         tokenClient: null,
         accessToken: null,
+        pendingAction: null,
 
         init() {
             if (!GOOGLE_CLIENT_ID || !window.google || !google.accounts) return false;
@@ -1078,14 +1041,16 @@
                     scope: 'https://www.googleapis.com/auth/drive.appdata',
                     callback: async (resp) => {
                         if (resp.error) {
-                            alert('Google 授權失敗：' + resp.error);
-                            this.handleTokenExpired();
+                            ViewRenderer.updateSyncStatusText('❌ 登入失敗：' + resp.error, '#dc2626');
                             return;
                         }
                         this.accessToken = resp.access_token;
-                        StorageService.saveSavedToken(resp.access_token, resp.expires_in || 3600);
-                        ViewRenderer.updateSyncButtonStatus(true);
-                        await this.smartAutoSync();
+                        ViewRenderer.updateSyncStatusText('🔐 已成功連接 Google 帳號！執行中...');
+                        if (this.pendingAction === 'upload') {
+                            await this.uploadData();
+                        } else if (this.pendingAction === 'download') {
+                            await this.downloadData();
+                        }
                     }
                 });
                 return true;
@@ -1095,48 +1060,38 @@
             }
         },
 
-        handleTokenExpired() {
-            this.accessToken = null;
-            StorageService.clearSavedToken();
-            ViewRenderer.updateSyncButtonStatus(false);
-        },
-
-        async tryAutoRestoreSession() {
-            const savedToken = StorageService.getSavedToken();
-            if (savedToken) {
-                this.accessToken = savedToken;
-                ViewRenderer.updateSyncButtonStatus(true);
-                await this.smartAutoSync();
-                return true;
-            } else {
-                this.handleTokenExpired();
-                return false;
-            }
-        },
-
-        requestToken() {
+        requestAction(action) {
             if (window.location.protocol === 'file:') {
                 alert('⚠️ Google Drive API 規定不能在直接開啟檔案 (file://) 的情況下發起同步！\n\n請將此網頁部署至 GitHub Pages，或透過 Web 伺服器 (如 Live Server / http://localhost) 開啟。');
                 return;
             }
-            if (this.tokenClient) {
-                this.tokenClient.requestAccessToken({ prompt: '' });
-            } else if (this.init()) {
-                this.tokenClient.requestAccessToken({ prompt: '' });
+
+            this.pendingAction = action;
+
+            if (this.accessToken) {
+                if (action === 'upload') this.uploadData();
+                if (action === 'download') this.downloadData();
             } else {
-                alert('Google SDK 載入中，請稍後再試。');
+                if (!this.tokenClient) this.init();
+                if (this.tokenClient) {
+                    this.tokenClient.requestAccessToken({ prompt: '' });
+                } else {
+                    alert('Google SDK 載入中，請稍後再試。');
+                }
             }
         },
 
         async findCloudFile() {
-            if (!this.accessToken) return null;
             try {
                 const q = encodeURIComponent(`name='${this.FILE_NAME}' and trashed=false`);
                 const res = await fetch(`https://www.googleapis.com/drive/v3/files?spaces=appDataFolder&q=${q}&fields=files(id,name)`, {
                     headers: { Authorization: 'Bearer ' + this.accessToken }
                 });
                 if (!res.ok) {
-                    if (res.status === 401) this.handleTokenExpired();
+                    if (res.status === 401) {
+                        this.accessToken = null;
+                        ViewRenderer.updateSyncStatusText('⚠️ 登入已過期，請重新發起操作', '#dc2626');
+                    }
                     return null;
                 }
                 const data = await res.json();
@@ -1147,38 +1102,13 @@
             }
         },
 
-        async smartAutoSync() {
-            if (!this.accessToken) return;
+        async uploadData() {
+            ViewRenderer.updateSyncStatusText('⏳ 雲端備份中...');
             try {
                 const fileId = await this.findCloudFile();
-                let cloudData = null;
+                if (!this.accessToken) return;
 
-                if (fileId) {
-                    const res = await fetch(`https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`, {
-                        headers: { Authorization: 'Bearer ' + this.accessToken }
-                    });
-                    if (res.ok) {
-                        cloudData = await res.json();
-                    } else if (res.status === 401) {
-                        this.handleTokenExpired();
-                        return;
-                    }
-                }
-
-                const mergedData = StorageService.mergeWithCloudData(cloudData);
-                await this.pushDataToCloud(mergedData, fileId);
-
-                initDataUIOnly();
-                console.log('☁️ 雲端智慧同步完成');
-            } catch (err) {
-                console.error('雲端同步過程出錯:', err);
-            }
-        },
-
-        async pushDataToCloud(allData, knownFileId = null) {
-            if (!this.accessToken) return;
-            try {
-                const fileId = knownFileId || await this.findCloudFile();
+                const allData = StorageService.exportAllData();
                 const bodyStr = JSON.stringify(allData, null, 2);
 
                 if (fileId) {
@@ -1190,7 +1120,11 @@
                         },
                         body: bodyStr
                     });
-                    if (!res.ok && res.status === 401) this.handleTokenExpired();
+                    if (res.ok) {
+                        ViewRenderer.updateSyncStatusText('✅ 備份成功！已更新至雲端', '#16a34a');
+                    } else {
+                        ViewRenderer.updateSyncStatusText('❌ 備份失敗', '#dc2626');
+                    }
                 } else {
                     const metadata = { name: this.FILE_NAME, parents: ['appDataFolder'] };
                     const boundary = 'foo_bar_maple';
@@ -1207,16 +1141,53 @@
                         },
                         body: multipartBody
                     });
-                    if (!res.ok && res.status === 401) this.handleTokenExpired();
+                    if (res.ok) {
+                        ViewRenderer.updateSyncStatusText('✅ 首備份成功！已建立雲端資料', '#16a34a');
+                    } else {
+                        ViewRenderer.updateSyncStatusText('❌ 建立備份失敗', '#dc2626');
+                    }
                 }
-            } catch (e) {
-                console.error('靜默背景上傳失敗:', e);
+            } catch (err) {
+                console.error(err);
+                ViewRenderer.updateSyncStatusText('❌ 備份失敗：' + err.message, '#dc2626');
+            }
+        },
+
+        async downloadData() {
+            ViewRenderer.updateSyncStatusText('⏳ 從雲端讀取中...');
+            try {
+                const fileId = await this.findCloudFile();
+                if (!this.accessToken) return;
+
+                if (!fileId) {
+                    ViewRenderer.updateSyncStatusText('⚠️ 雲端尚無備份資料！請先在舊裝置上傳備份', '#b45309');
+                    return;
+                }
+
+                const res = await fetch(`https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`, {
+                    headers: { Authorization: 'Bearer ' + this.accessToken }
+                });
+
+                if (res.ok) {
+                    const cloudData = await res.json();
+                    if (StorageService.importAllData(cloudData)) {
+                        ViewRenderer.updateSyncStatusText('✅ 成功讀取並還原雲端資料！', '#16a34a');
+                        initDataUIOnly();
+                    } else {
+                        ViewRenderer.updateSyncStatusText('❌ 雲端資料格式錯誤', '#dc2626');
+                    }
+                } else {
+                    ViewRenderer.updateSyncStatusText('❌ 下載失敗', '#dc2626');
+                }
+            } catch (err) {
+                console.error(err);
+                ViewRenderer.updateSyncStatusText('❌ 讀取失敗：' + err.message, '#dc2626');
             }
         }
     };
 
     /* ==========================================================================
-       6. APP CONTROLLER (應用主控層)
+       6. APP CONTROLLER
        ========================================================================== */
     const AppState = {
         currentSort: 'mesoPerHit',
@@ -1234,18 +1205,13 @@
         FormController.populateCostConfig(costConfig);
 
         ViewRenderer.renderCharSelect(AppState.characterList, AppState.currentCharacter);
-        updateCostConfig(false);
+        updateCostConfig();
         renderList();
     }
 
-    async function initData() {
+    function initData() {
         initDataUIOnly();
-
-        setTimeout(async () => {
-            if (GoogleDriveService.init()) {
-                await GoogleDriveService.tryAutoRestoreSession();
-            }
-        }, 500);
+        setTimeout(() => GoogleDriveService.init(), 500);
     }
 
     function toggleCostConfig() {
@@ -1257,7 +1223,7 @@
         btn.innerText = isOpening ? '💾 儲存' : '✏️ 編輯';
     }
 
-    function updateCostConfig(shouldSync = true) {
+    function updateCostConfig() {
         const formData = FormController.getFormData();
         StorageService.saveCostConfig(AppState.currentCharacter, {
             hpRestore: formData.hpRestore,
@@ -1271,7 +1237,6 @@
         });
         ViewRenderer.updateCostTextDisplay(formData);
         calculate();
-        if (shouldSync) triggerBackgroundSync();
     }
 
     function switchCharacter() {
@@ -1284,7 +1249,7 @@
         FormController.populateCostConfig(costConfig);
 
         ViewRenderer.renderCharSelect(AppState.characterList, AppState.currentCharacter);
-        updateCostConfig(false);
+        updateCostConfig();
         renderList();
     }
 
@@ -1309,9 +1274,8 @@
 
         cancelEdit();
         ViewRenderer.renderCharSelect(AppState.characterList, AppState.currentCharacter);
-        updateCostConfig(false);
+        updateCostConfig();
         renderList();
-        triggerBackgroundSync();
     }
 
     function deleteCharacter() {
@@ -1334,9 +1298,8 @@
 
             cancelEdit();
             ViewRenderer.renderCharSelect(AppState.characterList, AppState.currentCharacter);
-            updateCostConfig(false);
+            updateCostConfig();
             renderList();
-            triggerBackgroundSync();
         }
     }
 
@@ -1415,9 +1378,8 @@
 
                 cancelEdit();
                 ViewRenderer.renderCharSelect(AppState.characterList, AppState.currentCharacter);
-                updateCostConfig(false);
+                updateCostConfig();
                 renderList();
-                triggerBackgroundSync();
 
                 alert(`成功匯入角色「${targetName}」的計算數據！`);
             } catch (err) {
@@ -1430,19 +1392,16 @@
         reader.readAsText(file);
     }
 
-    function handleGoogleSyncClick() {
-        if (GoogleDriveService.accessToken) {
-            GoogleDriveService.smartAutoSync();
-        } else {
-            GoogleDriveService.requestToken();
-        }
+    function openGoogleSyncModal() {
+        document.getElementById('googleModal').style.display = 'flex';
     }
 
-    function triggerBackgroundSync() {
-        if (GoogleDriveService.accessToken) {
-            const allData = StorageService.exportAllData();
-            GoogleDriveService.pushDataToCloud(allData);
-        }
+    function closeGoogleSyncModal() {
+        document.getElementById('googleModal').style.display = 'none';
+    }
+
+    function triggerDriveAction(action) {
+        GoogleDriveService.requestAction(action);
     }
 
     function getCalculations() {
@@ -1506,7 +1465,6 @@
 
         cancelEdit();
         renderList();
-        triggerBackgroundSync();
     }
 
     function editMonster(id) {
@@ -1565,7 +1523,6 @@
         if (target) {
             target.hidden = !visible;
             StorageService.saveMonsters(AppState.currentCharacter, monsters);
-            triggerBackgroundSync();
         }
     }
 
@@ -1576,7 +1533,6 @@
             StorageService.saveMonsters(AppState.currentCharacter, monsters);
             openManageModal();
             renderList();
-            triggerBackgroundSync();
         }
     }
 
