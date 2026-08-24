@@ -525,7 +525,9 @@
             CHARACTERS: 'maple_characters',
             CURRENT_CHAR: 'maple_current_char',
             MONSTERS_PREFIX: 'maple_monsters_',
-            COST_PREFIX: 'maple_cost_'
+            COST_PREFIX: 'maple_cost_',
+            G_TOKEN: 'maple_g_token',
+            G_EXPIRES: 'maple_g_expires'
         },
 
         getCharacters() {
@@ -579,6 +581,27 @@
             localStorage.removeItem(`${this.KEYS.COST_PREFIX}${charName}`);
         },
 
+        // Token 儲存與讀取
+        saveSavedToken(token, expiresInSeconds) {
+            const expiresAt = Date.now() + (expiresInSeconds * 1000) - 60000;
+            localStorage.setItem(this.KEYS.G_TOKEN, token);
+            localStorage.setItem(this.KEYS.G_EXPIRES, expiresAt.toString());
+        },
+
+        getSavedToken() {
+            const token = localStorage.getItem(this.KEYS.G_TOKEN);
+            const expiresAt = parseInt(localStorage.getItem(this.KEYS.G_EXPIRES) || '0', 10);
+            if (token && Date.now() < expiresAt) {
+                return token;
+            }
+            return null;
+        },
+
+        clearSavedToken() {
+            localStorage.removeItem(this.KEYS.G_TOKEN);
+            localStorage.removeItem(this.KEYS.G_EXPIRES);
+        },
+
         exportAllData() {
             const chars = this.getCharacters();
             const data = {
@@ -610,7 +633,6 @@
             return true;
         },
 
-        // 智慧合併本地與雲端資料 (Merge)
         mergeWithCloudData(cloudData) {
             const localData = this.exportAllData();
             if (!cloudData || !Array.isArray(cloudData.characters)) return localData;
@@ -625,7 +647,6 @@
                 const cloudList = cloudData.monsters[char] || [];
                 const mMap = new Map();
 
-                // 優先寫入雲端，本機同 ID 或同名怪物若更新則覆蓋
                 cloudList.forEach(m => mMap.set(m.id || m.name, m));
                 localList.forEach(m => mMap.set(m.id || m.name, m));
 
@@ -647,7 +668,7 @@
     };
 
     /* ==========================================================================
-       2. CALC ENGINE (計算核心層) - 純函數公式
+       2. CALC ENGINE (計算核心層)
        ========================================================================== */
     const CalcEngine = {
         compute(params) {
@@ -1066,14 +1087,29 @@
                 callback: async (resp) => {
                     if (resp.error) {
                         alert('Google 授權失敗：' + resp.error);
+                        StorageService.clearSavedToken();
+                        ViewRenderer.updateSyncButtonStatus(false);
                         return;
                     }
                     this.accessToken = resp.access_token;
+                    StorageService.saveSavedToken(resp.access_token, resp.expires_in || 3600);
                     ViewRenderer.updateSyncButtonStatus(true);
                     await this.smartAutoSync();
                 }
             });
             return true;
+        },
+
+        // 自動還原 Session
+        async tryAutoRestoreSession() {
+            const savedToken = StorageService.getSavedToken();
+            if (savedToken) {
+                this.accessToken = savedToken;
+                ViewRenderer.updateSyncButtonStatus(true);
+                await this.smartAutoSync();
+                return true;
+            }
+            return false;
         },
 
         requestToken() {
@@ -1083,7 +1119,8 @@
         },
 
         async findCloudFile() {
-            const res = await fetch("https://www.googleapis.com/drive/v3/files?spaces=appDataFolder&q=name='" + this.FILE_NAME + "'", {
+            const q = encodeURIComponent(`name='${this.FILE_NAME}' and trashed=false`);
+            const res = await fetch(`https://www.googleapis.com/drive/v3/files?spaces=appDataFolder&q=${q}`, {
                 headers: { Authorization: 'Bearer ' + this.accessToken }
             });
             const data = await res.json();
@@ -1092,6 +1129,7 @@
 
         // 智慧雙向同步：下載 -> 雙向合併 -> 寫回兩端
         async smartAutoSync() {
+            if (!this.accessToken) return;
             try {
                 const fileId = await this.findCloudFile();
                 let cloudData = null;
@@ -1100,7 +1138,9 @@
                     const res = await fetch(`https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`, {
                         headers: { Authorization: 'Bearer ' + this.accessToken }
                     });
-                    cloudData = await res.json();
+                    if (res.ok) {
+                        cloudData = await res.json();
+                    }
                 }
 
                 // 執行 Merge，混合本機與雲端最新資料
@@ -1109,7 +1149,7 @@
                 // 更新完 LocalStorage 後，順便覆蓋寫回 Google Drive 保持最新
                 await this.pushDataToCloud(mergedData, fileId);
 
-                initData();
+                initDataUIOnly();
                 console.log('☁️ 雲端智慧同步完成');
             } catch (err) {
                 console.error('雲端同步過程出錯:', err);
@@ -1166,19 +1206,30 @@
         isCompactMode: false
     };
 
-    function initData() {
+    function initDataUIOnly() {
         AppState.characterList = StorageService.getCharacters();
-        StorageService.saveCharacters(AppState.characterList);
-
         AppState.currentCharacter = StorageService.getCurrentChar(AppState.characterList);
-        StorageService.saveCurrentChar(AppState.currentCharacter);
 
         const costConfig = StorageService.getCostConfig(AppState.currentCharacter);
         FormController.populateCostConfig(costConfig);
 
         ViewRenderer.renderCharSelect(AppState.characterList, AppState.currentCharacter);
-        updateCostConfig();
+        updateCostConfig(false);
         renderList();
+    }
+
+    async function initData() {
+        initDataUIOnly();
+
+        // 檢查是否有儲存的連線 Token
+        setTimeout(async () => {
+            if (GoogleDriveService.init()) {
+                const restored = await GoogleDriveService.tryAutoRestoreSession();
+                if (!restored) {
+                    ViewRenderer.updateSyncButtonStatus(false);
+                }
+            }
+        }, 500);
     }
 
     function toggleCostConfig() {
@@ -1190,7 +1241,7 @@
         btn.innerText = isOpening ? '💾 儲存' : '✏️ 編輯';
     }
 
-    function updateCostConfig() {
+    function updateCostConfig(shouldSync = true) {
         const formData = FormController.getFormData();
         StorageService.saveCostConfig(AppState.currentCharacter, {
             hpRestore: formData.hpRestore,
@@ -1204,7 +1255,7 @@
         });
         ViewRenderer.updateCostTextDisplay(formData);
         calculate();
-        triggerBackgroundSync();
+        if (shouldSync) triggerBackgroundSync();
     }
 
     function switchCharacter() {
@@ -1217,7 +1268,7 @@
         FormController.populateCostConfig(costConfig);
 
         ViewRenderer.renderCharSelect(AppState.characterList, AppState.currentCharacter);
-        updateCostConfig();
+        updateCostConfig(false);
         renderList();
     }
 
@@ -1242,7 +1293,7 @@
 
         cancelEdit();
         ViewRenderer.renderCharSelect(AppState.characterList, AppState.currentCharacter);
-        updateCostConfig();
+        updateCostConfig(false);
         renderList();
         triggerBackgroundSync();
     }
@@ -1267,7 +1318,7 @@
 
             cancelEdit();
             ViewRenderer.renderCharSelect(AppState.characterList, AppState.currentCharacter);
-            updateCostConfig();
+            updateCostConfig(false);
             renderList();
             triggerBackgroundSync();
         }
@@ -1348,7 +1399,7 @@
 
                 cancelEdit();
                 ViewRenderer.renderCharSelect(AppState.characterList, AppState.currentCharacter);
-                updateCostConfig();
+                updateCostConfig(false);
                 renderList();
                 triggerBackgroundSync();
 
@@ -1366,7 +1417,7 @@
     /* 觸發 Google 登入與智慧自動同步 */
     function handleGoogleSyncClick() {
         if (GoogleDriveService.accessToken) {
-            // 若已經登入，再次點擊時手動發起一次同步
+            // 已連線時，點擊直接再觸發一次背景靜默同步
             GoogleDriveService.smartAutoSync();
         } else {
             if (GoogleDriveService.init()) {
