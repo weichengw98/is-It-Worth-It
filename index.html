@@ -4,6 +4,8 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>楓之谷怪物打擊效率與多角色收益計算機</title>
+    <!-- 引入 Google Identity Services SDK -->
+    <script src="https://accounts.google.com/gsi/client" async defer></script>
     <style>
         * { box-sizing: border-box; }
         body {
@@ -70,6 +72,11 @@
         .btn-export { background: #16a34a; color: white; }
         .btn-export:hover { background: #15803d; }
         
+        /* Google 同步按鈕樣式 */
+        .btn-google { background: #4285f4; color: white; display: flex; align-items: center; gap: 6px; }
+        .btn-google:hover { background: #357ae8; }
+        .btn-google.logged-in { background: #10b981; }
+        
         .cost-info {
             font-size: 13px;
             color: #555;
@@ -105,7 +112,6 @@
             gap: 8px;
         }
         .meso-grid input { padding: 6px; text-align: center; }
-        /* 掉落楓幣有填寫時的寶藍色框線樣式 */
         .meso-grid input.has-value {
             border: 2px solid #1d4ed8;
             background-color: #f0f7ff;
@@ -137,8 +143,6 @@
             transition: background 0.2s;
         }
         .btn:hover { background-color: #219150; }
-        .btn-cancel { background-color: #7f8c8d; display: none; }
-        .btn-cancel:hover { background-color: #616e6f; }
 
         /* 排行榜右側控制區塊 */
         .right-header-actions {
@@ -219,7 +223,6 @@
             border-color: #3498db;
         }
         
-        /* 前三名特別樣式 */
         .monster-item.rank-1 {
             background: linear-gradient(135deg, #fffcf0 0%, #fff3c4 100%);
             border: 2px solid #f1c40f;
@@ -253,7 +256,6 @@
         .badge-loss { background-color: #fee2e2; color: #dc2626; border: 1px solid #fca5a5; }
         .badge-cp { background-color: #fef3c7; color: #b45309; border: 1px solid #fde68a; font-weight: 800; }
 
-        /* 詳細模式樣式 */
         .primary-stat {
             background: rgba(255, 255, 255, 0.6);
             padding: 8px 12px;
@@ -277,7 +279,6 @@
         }
         .secondary-stats div span { font-weight: bold; }
 
-        /* 緊湊模式 (Compact Mode) 樣式 */
         .monster-item.compact {
             padding: 10px 14px;
             display: flex;
@@ -285,20 +286,11 @@
             justify-content: space-between;
             margin-bottom: 6px;
         }
-        .compact-left {
-            display: flex;
-            align-items: center;
-            gap: 8px;
-        }
-        .compact-right {
-            display: flex;
-            align-items: center;
-            gap: 10px;
-        }
+        .compact-left { display: flex; align-items: center; gap: 8px; }
+        .compact-right { display: flex; align-items: center; gap: 10px; }
         .compact-val { font-size: 14px; font-weight: 800; }
         .compact-sub { font-size: 12px; color: #64748b; }
 
-        /* 彈窗 (Modal) 樣式 */
         .modal-backdrop {
             position: fixed;
             top: 0; left: 0; width: 100vw; height: 100vh;
@@ -355,7 +347,7 @@
     <div class="panel left-panel">
         <h2>楓之谷打怪收益計算機</h2>
 
-        <!-- 切換角色與匯入匯出區塊 (按鈕依序：新增角色 -> 刪除 -> 匯入 -> 匯出) -->
+        <!-- 切換角色與匯入匯出區塊 -->
         <div class="character-section">
             <label>選擇目前角色</label>
             <div class="char-select-group">
@@ -364,6 +356,7 @@
                 <button class="btn-sm btn-del" onclick="deleteCharacter()">刪除</button>
                 <button class="btn-sm btn-import" onclick="triggerImport()">匯入</button>
                 <button class="btn-sm btn-export" onclick="exportCharacterData()">匯出</button>
+                <button class="btn-sm btn-google" id="btnGoogleSync" onclick="handleGoogleSyncClick()">Google 雲端同步</button>
                 <input type="file" id="importFileInput" accept=".json" style="display:none;" onchange="handleFileImport(event)">
             </div>
         </div>
@@ -395,7 +388,6 @@
                         <input type="number" id="mpPrice" value="192" min="0" oninput="updateCostConfig()">
                     </div>
                 </div>
-                <!-- 技能基礎維護區塊 -->
                 <div class="grid-2" style="margin-bottom: 8px; border-top: 1px dashed #ccc; padding-top: 8px;">
                     <div>
                         <label style="font-size: 12px;">技能 1 名稱</label>
@@ -419,13 +411,11 @@
             </div>
         </div>
 
-        <!-- 怪物名稱區塊 (移動至技能所需次數之前) -->
         <div class="form-group">
             <label for="monsterName">怪物名稱</label>
             <input type="text" id="monsterName" placeholder="例如：綠水靈">
         </div>
 
-        <!-- 技能擊殺次數區塊 -->
         <div class="grid-2">
             <div class="form-group">
                 <label for="hits1" id="labelSkill1">技能1所需次數（下）</label>
@@ -437,7 +427,6 @@
             </div>
         </div>
 
-        <!-- 怪物總經驗值 與 道具價值 併排區塊 -->
         <div class="grid-2">
             <div class="form-group">
                 <label for="exp">怪物總經驗值 (EXP)</label>
@@ -485,7 +474,6 @@
         <div style="margin-top: 20px; border-top: 2px solid #eee; padding-top: 15px;">
             <div class="btn-group">
                 <button class="btn" id="saveBtn" onclick="saveMonster()">儲存怪物數據</button>
-                <button class="btn btn-cancel" id="cancelBtn" onclick="cancelEdit()">取消編輯</button>
             </div>
         </div>
     </div>
@@ -495,16 +483,13 @@
         <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 2px solid #eee; padding-bottom: 8px; margin-bottom: 12px;">
             <h3 style="border: none; padding: 0; margin: 0;"><span id="currentCharTitle">預設角色</span> - 排行榜</h3>
             <div class="right-header-actions">
-                <!-- 緊湊模式 Icon 按鈕 -->
                 <button class="icon-btn" id="btnModeCompact" onclick="toggleViewMode()" title="切換緊湊/詳細模式">
                     <span id="compactIcon">☰</span>
                 </button>
-                <!-- 編輯清單按鈕 -->
                 <button class="manage-btn" onclick="openManageModal()">⚙️ 編輯清單</button>
             </div>
         </div>
 
-        <!-- TAB 切換：楓幣排行 / 經驗排行 / CP值排行 -->
         <div class="tab-group">
             <button class="tab-btn active" id="tabMeso" onclick="setSort('mesoPerHit')">💰 楓幣排行</button>
             <button class="tab-btn" id="tabExp" onclick="setSort('expPerHit')">⚡ 經驗排行</button>
@@ -530,6 +515,8 @@
 </div>
 
 <script>
+    const GOOGLE_CLIENT_ID = '929584514213-n692lpgr3lekqpp8gnr3d6n5k9ucb71r.apps.googleusercontent.com';
+
     /* ==========================================================================
        1. STORAGE SERVICE (資料持久化層) - 專門讀寫 LocalStorage
        ========================================================================== */
@@ -561,18 +548,10 @@
 
         getCostConfig(charName) {
             const data = localStorage.getItem(`${this.KEYS.COST_PREFIX}${charName}`);
-            if (data) {
-                return JSON.parse(data);
-            }
+            if (data) return JSON.parse(data);
             return {
-                hpRestore: 300,
-                hpPrice: 300,
-                mpRestore: 100,
-                mpPrice: 192,
-                skill1Name: '技能1',
-                mpCost1: 20,
-                skill2Name: '技能2',
-                mpCost2: 0
+                hpRestore: 300, hpPrice: 300, mpRestore: 100, mpPrice: 192,
+                skill1Name: '技能1', mpCost1: 20, skill2Name: '技能2', mpCost2: 0
             };
         },
 
@@ -598,28 +577,90 @@
         removeMonsterData(charName) {
             localStorage.removeItem(`${this.KEYS.MONSTERS_PREFIX}${charName}`);
             localStorage.removeItem(`${this.KEYS.COST_PREFIX}${charName}`);
+        },
+
+        exportAllData() {
+            const chars = this.getCharacters();
+            const data = {
+                version: "2.0",
+                updatedAt: Date.now(),
+                characters: chars,
+                currentChar: this.getCurrentChar(chars),
+                costs: {},
+                monsters: {}
+            };
+            chars.forEach(c => {
+                data.costs[c] = this.getCostConfig(c);
+                data.monsters[c] = this.getMonsters(c);
+            });
+            return data;
+        },
+
+        importAllData(data) {
+            if (!data || !Array.isArray(data.characters)) return false;
+            this.saveCharacters(data.characters);
+            if (data.currentChar) this.saveCurrentChar(data.currentChar);
+
+            if (data.costs) {
+                Object.keys(data.costs).forEach(c => this.saveCostConfig(c, data.costs[c]));
+            }
+            if (data.monsters) {
+                Object.keys(data.monsters).forEach(c => this.saveMonsters(c, data.monsters[c]));
+            }
+            return true;
+        },
+
+        // 智慧合併本地與雲端資料 (Merge)
+        mergeWithCloudData(cloudData) {
+            const localData = this.exportAllData();
+            if (!cloudData || !Array.isArray(cloudData.characters)) return localData;
+
+            const charSet = new Set([...localData.characters, ...cloudData.characters]);
+            const mergedCharacters = Array.from(charSet);
+            const mergedCosts = { ...(cloudData.costs || {}), ...(localData.costs || {}) };
+            const mergedMonsters = {};
+
+            mergedCharacters.forEach(char => {
+                const localList = localData.monsters[char] || [];
+                const cloudList = cloudData.monsters[char] || [];
+                const mMap = new Map();
+
+                // 優先寫入雲端，本機同 ID 或同名怪物若更新則覆蓋
+                cloudList.forEach(m => mMap.set(m.id || m.name, m));
+                localList.forEach(m => mMap.set(m.id || m.name, m));
+
+                mergedMonsters[char] = Array.from(mMap.values());
+            });
+
+            const mergedData = {
+                version: "2.0",
+                updatedAt: Date.now(),
+                characters: mergedCharacters,
+                currentChar: localData.currentChar || cloudData.currentChar || mergedCharacters[0],
+                costs: mergedCosts,
+                monsters: mergedMonsters
+            };
+
+            this.importAllData(mergedData);
+            return mergedData;
         }
     };
 
     /* ==========================================================================
-       2. CALC ENGINE (計算核心層) - 純函數公式，不讀寫任何 DOM
+       2. CALC ENGINE (計算核心層) - 純函數公式
        ========================================================================== */
     const CalcEngine = {
         compute(params) {
             const {
-                hits1 = 0, hits2 = 0,
-                mpCost1 = 0, mpCost2 = 0,
+                hits1 = 0, hits2 = 0, mpCost1 = 0, mpCost2 = 0,
                 exp = 0, hpDamage = 0, hitChance = 0, itemValue = 0,
-                mesoRawArray = [],
-                hpRestore = 1, hpPrice = 0,
-                mpRestore = 1, mpPrice = 0,
-                skill1Name = '技能1', skill2Name = '技能2'
+                mesoRawArray = [], hpRestore = 1, hpPrice = 0,
+                mpRestore = 1, mpPrice = 0, skill1Name = '技能1', skill2Name = '技能2'
             } = params;
 
             const totalHits = hits1 + hits2;
             if (totalHits <= 0) return null;
 
-            // 計算平均楓幣
             let mesoSum = 0;
             let mesoCount = 0;
             mesoRawArray.forEach(val => {
@@ -631,7 +672,6 @@
             });
             const avgMeso = mesoCount > 0 ? (mesoSum / mesoCount) : 0;
 
-            // 計算補給成本
             const mpCostPerUnit = mpPrice / (mpRestore || 1);
             const hpCostPerUnit = hpPrice / (hpRestore || 1);
 
@@ -648,18 +688,16 @@
             const cpRatio = expPerHit > 0 ? (mesoPerHit / expPerHit) : 0;
 
             return {
-                skill1Name, hits1, mpCost1,
-                skill2Name, hits2, mpCost2,
+                skill1Name, hits1, mpCost1, skill2Name, hits2, mpCost2,
                 totalHits, exp, hpDamage, hitChance, itemValue,
-                avgMeso, mesoRawArray,
-                totalMpCost, avgHpCostPerMonster,
+                avgMeso, mesoRawArray, totalMpCost, avgHpCostPerMonster,
                 netProfitPerMonster, mesoPerHit, expPerHit, cpRatio
             };
         }
     };
 
     /* ==========================================================================
-       3. FORM CONTROLLER (表單讀寫層) - 專門讀取或填寫表單欄位
+       3. FORM CONTROLLER (表單讀寫層)
        ========================================================================== */
     const FormController = {
         getFormData() {
@@ -674,21 +712,17 @@
                 skill1Name: document.getElementById('skill1Name').value || '技能1',
                 hits1: parseFloat(document.getElementById('hits1').value) || 0,
                 mpCost1: parseFloat(document.getElementById('mpCost1').value) || 0,
-
                 skill2Name: document.getElementById('skill2Name').value || '技能2',
                 hits2: parseFloat(document.getElementById('hits2').value) || 0,
                 mpCost2: parseFloat(document.getElementById('mpCost2').value) || 0,
-
                 exp: parseFloat(document.getElementById('exp').value) || 0,
                 hpDamage: parseFloat(document.getElementById('hpDamage').value) || 0,
                 hitChance: parseFloat(document.getElementById('hitChance').value) || 0,
                 itemValue: parseFloat(document.getElementById('itemValue').value) || 0,
-
                 hpRestore: parseFloat(document.getElementById('hpRestore').value) || 1,
                 hpPrice: parseFloat(document.getElementById('hpPrice').value) || 0,
                 mpRestore: parseFloat(document.getElementById('mpRestore').value) || 1,
                 mpPrice: parseFloat(document.getElementById('mpPrice').value) || 0,
-
                 mesoRawArray
             };
         },
@@ -736,7 +770,7 @@
     };
 
     /* ==========================================================================
-       4. VIEW RENDERER (UI 渲染層) - 專門更新畫面 HTML
+       4. VIEW RENDERER (UI 渲染層)
        ========================================================================== */
     const ViewRenderer = {
         renderCharSelect(characterList, currentCharacter) {
@@ -828,7 +862,6 @@
             const visibleMonsters = monsters.filter(m => !m.hidden);
             visibleMonsters.sort((a, b) => b[currentSort] - a[currentSort]);
 
-            // 計算前 25% CP 值的閥值與 ID 集合
             const cpSorted = [...visibleMonsters].sort((a, b) => b.cpRatio - a.cpRatio);
             const top25Count = Math.max(1, Math.ceil(visibleMonsters.length * 0.25));
             const top25CpIds = new Set(
@@ -838,14 +871,12 @@
             visibleMonsters.forEach((monster, index) => {
                 const li = document.createElement('li');
 
-                // 1. 排名顯示 (前三名 emoji)
                 let rankDisplay = `#${index + 1}`;
                 let rankClass = '';
                 if (index === 0) { rankDisplay = '🥇'; rankClass = 'rank-1'; }
                 else if (index === 1) { rankDisplay = '🥈'; rankClass = 'rank-2'; }
                 else if (index === 2) { rankDisplay = '🥉'; rankClass = 'rank-3'; }
 
-                // 2. 賺虧標籤 (▲ 賺, ▼ 虧, ▼ 血虧)
                 let profitBadge = '';
                 if (monster.mesoPerHit < -9.99) {
                     profitBadge = `<span class="status-badge badge-loss">▼ 血虧</span>`;
@@ -855,13 +886,11 @@
                     profitBadge = `<span class="status-badge badge-loss">▼ 虧</span>`;
                 }
 
-                // 3. CP 標籤 (前 25% 顯示 ⭐ 高 CP 值)
                 let cpBadge = '';
                 if (top25CpIds.has(monster.id)) {
                     cpBadge = `<span class="status-badge badge-cp">⭐ 高 CP 值</span>`;
                 }
 
-                // 4. 重點資訊 (無冒號、主要數值 18px 放大、每隻收益優先)
                 let labelText = '';
                 let valueHtml = '';
 
@@ -888,7 +917,6 @@
                                 `<span style="font-size:13px; font-weight:bold; color:${valColor};"> 幣/EXP</span>`;
                 }
 
-                // 5. 額外資訊色票配置
                 const secProfitColor = monster.netProfit >= 0 ? '#16a34a' : '#dc2626';
                 const secExpColor = '#d97706';
                 const secCpColor = '#b45309';
@@ -1001,22 +1029,134 @@
 
         setSaveButtonEditState(isEditing) {
             const saveBtn = document.getElementById('saveBtn');
-            const cancelBtn = document.getElementById('cancelBtn');
-
             if (isEditing) {
-                saveBtn.innerText = '更新怪物數據';
+                saveBtn.innerText = '更新怪物資訊';
                 saveBtn.style.backgroundColor = '#e67e22';
-                cancelBtn.style.display = 'block';
             } else {
                 saveBtn.innerText = '儲存怪物數據';
                 saveBtn.style.backgroundColor = '#27ae60';
-                cancelBtn.style.display = 'none';
+            }
+        },
+
+        updateSyncButtonStatus(isLoggedIn) {
+            const btn = document.getElementById('btnGoogleSync');
+            if (isLoggedIn) {
+                btn.className = 'btn-sm btn-google logged-in';
+                btn.innerText = '☁️ 雲端已連線';
+            } else {
+                btn.className = 'btn-sm btn-google';
+                btn.innerText = 'Google 雲端同步';
             }
         }
     };
 
     /* ==========================================================================
-       5. APP CONTROLLER (應用主控層) - 整合狀態與事件
+       5. GOOGLE DRIVE SYNC SERVICE (智慧雙向自動同步服務)
+       ========================================================================== */
+    const GoogleDriveService = {
+        FILE_NAME: 'maple_calculator_cloud_data.json',
+        tokenClient: null,
+        accessToken: null,
+
+        init() {
+            if (!GOOGLE_CLIENT_ID || !window.google || !google.accounts) return false;
+            this.tokenClient = google.accounts.oauth2.initTokenClient({
+                client_id: GOOGLE_CLIENT_ID,
+                scope: 'https://www.googleapis.com/auth/drive.appdata',
+                callback: async (resp) => {
+                    if (resp.error) {
+                        alert('Google 授權失敗：' + resp.error);
+                        return;
+                    }
+                    this.accessToken = resp.access_token;
+                    ViewRenderer.updateSyncButtonStatus(true);
+                    await this.smartAutoSync();
+                }
+            });
+            return true;
+        },
+
+        requestToken() {
+            if (this.tokenClient) {
+                this.tokenClient.requestAccessToken({ prompt: '' });
+            }
+        },
+
+        async findCloudFile() {
+            const res = await fetch("https://www.googleapis.com/drive/v3/files?spaces=appDataFolder&q=name='" + this.FILE_NAME + "'", {
+                headers: { Authorization: 'Bearer ' + this.accessToken }
+            });
+            const data = await res.json();
+            return (data.files && data.files.length > 0) ? data.files[0].id : null;
+        },
+
+        // 智慧雙向同步：下載 -> 雙向合併 -> 寫回兩端
+        async smartAutoSync() {
+            try {
+                const fileId = await this.findCloudFile();
+                let cloudData = null;
+
+                if (fileId) {
+                    const res = await fetch(`https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`, {
+                        headers: { Authorization: 'Bearer ' + this.accessToken }
+                    });
+                    cloudData = await res.json();
+                }
+
+                // 執行 Merge，混合本機與雲端最新資料
+                const mergedData = StorageService.mergeWithCloudData(cloudData);
+
+                // 更新完 LocalStorage 後，順便覆蓋寫回 Google Drive 保持最新
+                await this.pushDataToCloud(mergedData, fileId);
+
+                initData();
+                console.log('☁️ 雲端智慧同步完成');
+            } catch (err) {
+                console.error('雲端同步過程出錯:', err);
+            }
+        },
+
+        // 背景靜默上傳
+        async pushDataToCloud(allData, knownFileId = null) {
+            if (!this.accessToken) return;
+            try {
+                const fileId = knownFileId || await this.findCloudFile();
+                const bodyStr = JSON.stringify(allData, null, 2);
+
+                if (fileId) {
+                    await fetch(`https://www.googleapis.com/upload/drive/v3/files/${fileId}?uploadType=media`, {
+                        method: 'PATCH',
+                        headers: {
+                            Authorization: 'Bearer ' + this.accessToken,
+                            'Content-Type': 'application/json'
+                        },
+                        body: bodyStr
+                    });
+                } else {
+                    const metadata = { name: this.FILE_NAME, parents: ['appDataFolder'] };
+                    const boundary = 'foo_bar_maple';
+                    const multipartBody = 
+                        `--${boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n` +
+                        JSON.stringify(metadata) + `\r\n--${boundary}\r\nContent-Type: application/json\r\n\r\n` +
+                        bodyStr + `\r\n--${boundary}--`;
+
+                    await fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart', {
+                        method: 'POST',
+                        headers: {
+                            Authorization: 'Bearer ' + this.accessToken,
+                            'Content-Type': `multipart/related; boundary=${boundary}`
+                        },
+                        body: multipartBody
+                    });
+                }
+            } catch (e) {
+                console.error('靜默背景上傳失敗:', e);
+            }
+        }
+    };
+
+    /* ==========================================================================
+       6. APP CONTROLLER (應用主控層)
        ========================================================================== */
     const AppState = {
         currentSort: 'mesoPerHit',
@@ -1064,6 +1204,7 @@
         });
         ViewRenderer.updateCostTextDisplay(formData);
         calculate();
+        triggerBackgroundSync();
     }
 
     function switchCharacter() {
@@ -1103,6 +1244,7 @@
         ViewRenderer.renderCharSelect(AppState.characterList, AppState.currentCharacter);
         updateCostConfig();
         renderList();
+        triggerBackgroundSync();
     }
 
     function deleteCharacter() {
@@ -1127,10 +1269,10 @@
             ViewRenderer.renderCharSelect(AppState.characterList, AppState.currentCharacter);
             updateCostConfig();
             renderList();
+            triggerBackgroundSync();
         }
     }
 
-    /* 匯出資料功能 */
     function exportCharacterData() {
         const charName = AppState.currentCharacter;
         const costConfig = StorageService.getCostConfig(charName);
@@ -1155,7 +1297,6 @@
         URL.revokeObjectURL(url);
     }
 
-    /* 匯入資料功能 */
     function triggerImport() {
         document.getElementById('importFileInput').click();
     }
@@ -1209,6 +1350,7 @@
                 ViewRenderer.renderCharSelect(AppState.characterList, AppState.currentCharacter);
                 updateCostConfig();
                 renderList();
+                triggerBackgroundSync();
 
                 alert(`成功匯入角色「${targetName}」的計算數據！`);
             } catch (err) {
@@ -1219,6 +1361,28 @@
             }
         };
         reader.readAsText(file);
+    }
+
+    /* 觸發 Google 登入與智慧自動同步 */
+    function handleGoogleSyncClick() {
+        if (GoogleDriveService.accessToken) {
+            // 若已經登入，再次點擊時手動發起一次同步
+            GoogleDriveService.smartAutoSync();
+        } else {
+            if (GoogleDriveService.init()) {
+                GoogleDriveService.requestToken();
+            } else {
+                alert('Google SDK 尚未載入完成，請確認網路連線。');
+            }
+        }
+    }
+
+    /* 觸發背景靜默同步 */
+    function triggerBackgroundSync() {
+        if (GoogleDriveService.accessToken) {
+            const allData = StorageService.exportAllData();
+            GoogleDriveService.pushDataToCloud(allData);
+        }
     }
 
     function getCalculations() {
@@ -1282,6 +1446,7 @@
 
         cancelEdit();
         renderList();
+        triggerBackgroundSync();
     }
 
     function editMonster(id) {
@@ -1340,6 +1505,7 @@
         if (target) {
             target.hidden = !visible;
             StorageService.saveMonsters(AppState.currentCharacter, monsters);
+            triggerBackgroundSync();
         }
     }
 
@@ -1350,6 +1516,7 @@
             StorageService.saveMonsters(AppState.currentCharacter, monsters);
             openManageModal();
             renderList();
+            triggerBackgroundSync();
         }
     }
 
